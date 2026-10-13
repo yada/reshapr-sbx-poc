@@ -67,9 +67,10 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
 
 ## 6. TODO
 
-- [ ] **Run the e2e suite** (`TestE2EKit`, `scripts/test-kit-e2e.sh` in sbx-kits-contrib). Not run yet. Needs a
-  `testdata/tck.yaml` for the mixin, an interactive `sbx --app-name sbx-kits-contrib-tck login`, and a check of the
-  Linux `/dev/kvm` requirement on macOS. Do it before proposing the kit upstream (CI skips e2e for fork PRs).
+- [x] **e2e suite** (`TestE2EKit`, `scripts/test-kit-e2e.sh <kit-dir>` in sbx-kits-contrib): passed on macOS (arm64) with the
+  kit's default args (no `testdata/tck.yaml` needed, no `/dev/kvm` needed). Subtests `env`, `tmpfs` and `agentContext` pass.
+  It needs a one-time `sbx --app-name sbx-kits-contrib-tck login`, which can be rate-limited by Docker's auth service.
+  The log notes that no binding authorizes `reshapr`, which is expected: the user-side binding is created by `scripts/bind.sh`.
 - [ ] Live prompts for Codex and Claude (need their logins). Copilot is done.
 - [ ] Isolated sbx daemon mode (`SBX_APP`): login did not persist in tests; retest or drop.
 - [ ] Deferred: OAuth2, several expositions, remote reShapr server, a "builder" kit (reShapr CLI + the `reshapr-builder`

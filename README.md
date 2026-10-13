@@ -143,7 +143,7 @@ Design notes, findings and the TODO list: [docs/PLAN.md](docs/PLAN.md).
 
 - One exposition per kit (the credential service is fixed to `reshapr`); local reShapr server only; API-key auth only (no OAuth2).
 - Codex: registration and the reShapr server path are verified; a live prompt is not. Claude: live prompt not tested either. Copilot: live prompt verified.
-- The kit passes `sbx kit validate` and the sbx-kits-contrib TCK (`KIT=$PWD/kit go test ./tck -run TestKitTCK`, run from that repo); its e2e suite was not run.
+- The kit passes `sbx kit validate` and the sbx-kits-contrib TCK (`KIT=$PWD/kit go test ./tck -run TestKitTCK`, run from that repo). Its e2e suite also passes (`scripts/test-kit-e2e.sh <path-to>/kit`, from that repo).
 - Next: remote reShapr server, several expositions, OAuth2, a "builder" kit (reShapr CLI + the `reshapr-builder` skill).
 
 ## License
