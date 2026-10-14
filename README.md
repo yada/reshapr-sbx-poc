@@ -109,6 +109,8 @@ sbx run reshapr-poc
 
 Symptoms (observed): without `github`, Copilot starts with `Authentication token found but could not be validated. GitHub returned: Bad credentials`; with `github` but without `copilot`, the model catalog returns 401.
 
+A third cause (observed on sbx 0.48.0): if you removed the `github` secret while a sandbox of that name existed, sbx logs `secrets: credential revoked` for it, and the revoked state sticks to the sandbox **name**. Re-creating a sandbox with the same name keeps failing with "Bad credentials" even with the secret set again; a different name works. Use another name with `SANDBOX=<name> make verify` or `sbx create --name <name>`.
+
 ### Use your own API
 
 `make up` only imports the demo API. To expose another one, import it into reShapr and point the kit at it:
@@ -130,7 +132,7 @@ The kit is published on Docker Hub as `docker.io/yadayac/reshapr-kit:0.2.0`, so 
 |---|---|---|
 | Claude | `docker.io/docker/sbx-kit-claude:2.1.296` | none |
 | Codex | `docker.io/docker/sbx-kit-codex:0.162.1` | none |
-| Copilot | `copilot` (built-in name) | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) |
+| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) |
 
 ```bash
 BASE=docker.io/docker/sbx-kit-claude:2.1.296   # pick a workload from the table
@@ -183,7 +185,7 @@ Kit args: `port` (default `7777`) and `exposition` (`<org>/<exposition-name>`, s
 ## How it works, and the gotchas
 
 - Inside the sandbox, `localhost` is the sandbox itself, so clients (each agent's MCP config, and `scripts/mcp-smoke.sh`) use `host.docker.internal:7777` to reach the host. The sbx proxy also handles host traffic and rewrites `host.docker.internal` to **`localhost`**. So the allow rule (`localhost:7777`) and the credential `inject.domain` (`localhost`) must both use `localhost`.
-- The kit is **schema v3** (`reshapr/reshapr.yaml`; the v2 version is tagged `v0.1.0-v2`). A v3 mixin must be composed with a v3 *workload*: the built-in names `claude` and `codex` failed with "no workload kit in the set", so `make verify` uses the published workloads (`docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`). Copilot is the exception: it uses the built-in `copilot` name, because with the published workload `docker.io/docker/sbx-kit-copilot:1.0.86` the `github` token is not injected and Copilot fails with "Bad credentials" (observed on sbx 0.48.0; the live Claude and Codex prompts are not tested yet).
+- The kit is **schema v3** (`reshapr/reshapr.yaml`; the v2 version is tagged `v0.1.0-v2`). A v3 mixin must be composed with a v3 *workload*: the built-in names `claude` and `codex` failed with "no workload kit in the set", so `make verify` uses the published workloads (`docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`).
 - v3 source kits are built, not just parsed. On Docker Desktop's classic image store the host build fails ("OCI exporter is not supported for the docker driver"), so the scripts set `SBX_KIT_BUILDER=sandbox` to build in sbx's builder sandbox. `sbx kit validate` doesn't accept v3 source kits; `make validate` runs `sbx kit inspect` instead.
 - A v3 mixin can't set an environment variable without an image recipe, so the v2 `RESHAPR_MCP_URL` is gone. The args are exported as `RESHAPR_PORT` and `RESHAPR_EXPOSITION` instead.
 - sbx injects a credential only into domains the **user** allows. `scripts/bind.sh` creates `~/.config/sbx/credentials.yaml` (`reshapr` → `localhost`) if that file doesn't exist; `make down` removes it if the POC created it. Otherwise you get `credential not sent: no binding authorizes this service`.
