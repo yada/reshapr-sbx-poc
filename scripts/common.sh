@@ -16,10 +16,12 @@ export SBX_KIT_BUILDER="${SBX_KIT_BUILDER:-sandbox}"
 
 # v3 mixins need a v3 workload as base. The built-in `claude` and `codex` names
 # don't compose with them; the published workloads do. Pinned on purpose.
+# Copilot uses the built-in name: with the published v3 workload the `github`
+# token is not injected (Copilot fails with "Bad credentials").
 case "$AGENT" in
   claude)  BASE="docker.io/docker/sbx-kit-claude:2.1.296" ;;
   codex)   BASE="docker.io/docker/sbx-kit-codex:0.162.1" ;;
-  copilot) BASE="docker.io/docker/sbx-kit-copilot:1.0.86" ;;
+  copilot) BASE="copilot" ;;
   *)       BASE="$AGENT" ;;
 esac
 export BASE

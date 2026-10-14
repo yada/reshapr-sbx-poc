@@ -4,7 +4,7 @@
 source "$(dirname "$0")/common.sh"
 f="${XDG_CONFIG_HOME:-$HOME/.config}/sbx/credentials.yaml"
 if [ -e "$f" ]; then
-  grep -q '^  reshapr:' "$f" || { echo "Add this to $f yourself:"; printf 'bindings:\n  reshapr:\n    discovery: []\n    allowedDomains: [localhost]\n'; exit 1; }
+  grep -q '^[[:space:]]*reshapr:' "$f" || { echo "Add this to $f yourself:"; printf 'bindings:\n  reshapr:\n    discovery: []\n    allowedDomains: [localhost]\n'; exit 1; }
   exit 0
 fi
 mkdir -p "$(dirname "$f")" "$STATE"
