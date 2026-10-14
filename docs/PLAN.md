@@ -44,6 +44,7 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    the MCP round trip (`initialize`, `tools/list`, `tools/call`) works from inside the sandbox. A live Copilot
    prompt also works (credential: `sbx secret set copilot`, with `gh auth token` pasted or via `--command`).
    The first `tools/call` can hit reShapr's 3 s backend timeout, so `verify` retries it.
+   Live Copilot prompt, 14 Oct 2026, sbx 0.48.0: with the published kit `docker.io/yadayac/reshapr-kit:0.2.0` on `sbx-kit-copilot:1.0.86`, "give the forecast in SFO" made Copilot find `reshapr-get_v1_forecast` by tool search, call it, and answer from the reShapr server data (key injected by the proxy, never in the sandbox).
 6. **Negative tests.** No or wrong key gives 401. Direct access from the sandbox to the backend is blocked (403 under
    deny-all) while the same API works through the reShapr server.
 7. **Checks done:** `make verify` for the three agents on the v3 kit (sbx 0.48.0). On the v2 kit: `sbx kit validate`, the sbx-kits-contrib TCK (`TestKitTCK`) and the e2e suite.
