@@ -68,6 +68,12 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    - The daemon log shows `secrets: credential revoked` for that `vm_id` (service `github`, and `copilot` earlier), about 3,000 times since 12 Oct. For working names it shows `proxy: overriding client-supplied credential with host credential` instead, which is the proxy swapping the placeholder `GH_TOKEN` for the real token.
    - The revoked state survives `sbx rm`, recreating the sandbox and `sbx daemon restart`. The cause and the place where it is stored are unknown. `sbx reset` might clear it (untested, destructive).
    - An earlier theory, that the published v3 Copilot workload does not inject the `github` token, was wrong: it injects fine under a fresh name. The default sandbox name is now `reshapr-sbx`; set `SANDBOX=<name>` to use another one.
+11. **sbx MCP gateway as an alternative** (spike, sbx 0.48.0, no kit). `sbx secret set mcp:reshapr:api-key`, then `sbx mcp add reshapr --url http://localhost:7777/mcp/... --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check`, then `sbx create <workload> --static-mcp reshapr`.
+   - `sbx mcp ls` shows `ready`. Claude shows `mcp-gateway` Connected; Copilot and Codex also register it (Copilot is not on the docs' supported list).
+   - A `get_v1_forecast` call over MCP from inside the sandbox returned real Open-Meteo data through reShapr. The tool list is `get_v1_forecast`, `code-mode`, `mcp-exec`.
+   - The API key is absent from the sandbox filesystem. No allow rule was needed, and a direct request to `host.docker.internal:7777` returned 403.
+   - If the secret is not stored before `sbx mcp add`, the add fails with an OAuth discovery error. Rotating the secret needs a sandbox restart.
+   - Not verified: a live LLM prompt through the gateway, and non-macOS hosts.
 
 ## 4. Design decisions and limits
 
@@ -75,6 +81,7 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
 - Registration is guarded per agent binary and idempotent (`|| true` for `claude mcp add`, grep guard for Codex, jq merge for Copilot).
 - One exposition per kit instance: the key belongs to a Configuration Plan and the credential service name is fixed.
 - Allowing `localhost:7777` also matches any other local service on that port: the port is the trust boundary.
+- The kit is kept next to the gateway path (finding 11): it gives one `--kit` command and the agent-context text, which the gateway does not.
 - API-key auth only. OAuth2 would need a host-side token refresher (JWTs expire) and an IdP; deferred.
 
 ## 5. Risks
@@ -93,6 +100,7 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
   It needs a one-time `sbx --app-name sbx-kits-contrib-tck login`, which can be rate-limited by Docker's auth service.
   The log notes that no binding authorizes `reshapr`, which is expected: the user-side binding is created by `scripts/bind.sh`.
 - [ ] Live prompts for Codex and Claude (need `sbx secret set openai` / `anthropic`). Check that the proxy injects their credentials on the published v3 workloads, as it does for Copilot. Copilot is done: a live prompt works through the published kit.
+- [ ] Live prompt through the sbx MCP gateway (Claude and Codex), then decide whether to keep both paths (finding 11).
 - [x] **TCK on the v3 kit:** passed (see finding 7).
 - [ ] **e2e suite on the v3 kit: blocked on sbx 0.48.0** (contrib `v3` `scripts/test-kit-e2e.sh`). Not a kit failure; the policy log under
   `deny-all` was empty. Three attempts:

@@ -141,6 +141,28 @@ sbx create "$BASE" --name reshapr-sbx --kit docker.io/yadayac/reshapr-kit:0.2.0
 
 Versions: release `v0.2.0` is the current spec v3 kit; `v0.1.0-v2` is the legacy spec v2 kit.
 
+### Alternative: the sbx MCP gateway (no kit)
+
+sbx also has a [host-managed MCP gateway](https://docs.docker.com/ai/sandboxes/mcp-gateway/). You register the reShapr exposition once on the host, and every sandbox gets it through one gateway endpoint. Set the secret **first**; otherwise the add fails with a misleading OAuth discovery error:
+
+```bash
+sbx secret set mcp:reshapr:api-key < .state/api-key
+sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default \
+  --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check
+sbx create "$BASE" --name reshapr-gw --static-mcp reshapr   # no --kit
+```
+
+Tested on sbx 0.48.0 with Claude, Codex and Copilot: each one registers `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
+
+Differences from the kit:
+
+- The tool is named `get_v1_forecast` (not `reshapr-get_v1_forecast`), and the gateway adds `code-mode` and `mcp-exec`.
+- It is host state, not an artifact: nothing to distribute, and no agent-context text.
+- After rotating the secret, restart the sandbox.
+- Copilot is not on the docs' list of supported agents, but it registered the gateway in the test.
+
+Use the kit for a single `--kit` command and the agent-context text; use the gateway if you prefer to keep the key out of the sandbox entirely.
+
 ### Publish the kit (optional)
 
 `docker.io/yadayac/reshapr-kit:0.2.0` is already published; this section is for publishing your own copy. A v3 kit is an OCI image, so others can use it without cloning the repo. `sbx kit push` is v1/v2 only on sbx 0.48.0; publish with buildx and a **`docker-container` builder** (Docker Desktop's default builder pushes a plain image that sbx rejects with "no artifactType"):
