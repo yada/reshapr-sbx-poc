@@ -126,11 +126,18 @@ sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit ./reshapr --kit-arg exp
 
 The kit is published on Docker Hub as `docker.io/yadayac/reshapr-kit:0.2.0`, so you can use it without cloning the repo. You still need a reShapr server running on the host and the `reshapr` secret set before `sbx create` (`make up` does both for the demo):
 
+| Agent | Workload (`BASE`) | Extra secrets |
+|---|---|---|
+| Claude | `docker.io/docker/sbx-kit-claude:2.1.296` | none |
+| Codex | `docker.io/docker/sbx-kit-codex:0.162.1` | none |
+| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) |
+
 ```bash
-sbx create docker.io/docker/sbx-kit-claude:2.1.296 --name reshapr-poc --kit docker.io/yadayac/reshapr-kit:0.2.0
+BASE=docker.io/docker/sbx-kit-claude:2.1.296   # pick a workload from the table
+sbx create "$BASE" --name reshapr-poc --kit docker.io/yadayac/reshapr-kit:0.2.0
 ```
 
-Codex and Copilot work the same way with their own workloads (`docker.io/docker/sbx-kit-codex:0.162.1`, `docker.io/docker/sbx-kit-copilot:1.0.86`). Versions: release `v0.2.0` is the current spec v3 kit; `v0.1.0-v2` is the legacy spec v2 kit.
+Versions: release `v0.2.0` is the current spec v3 kit; `v0.1.0-v2` is the legacy spec v2 kit.
 
 ### Publish the kit (optional)
 
