@@ -122,9 +122,19 @@ sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit ./reshapr --kit-arg exp
 
 (The `reshapr` CLI here is the one from `make up`: it keeps its session in `.state/home`, so run it with `HOME=$PWD/.state/home`.)
 
+### Use the published kit
+
+The kit is published on Docker Hub as `docker.io/yadayac/reshapr-kit:0.2.0`, so you can use it without cloning the repo. You still need a reShapr server running on the host and the `reshapr` secret set before `sbx create` (`make up` does both for the demo):
+
+```bash
+sbx create docker.io/docker/sbx-kit-claude:2.1.296 --name reshapr-poc --kit docker.io/yadayac/reshapr-kit:0.2.0
+```
+
+Codex and Copilot work the same way with their own workloads (`docker.io/docker/sbx-kit-codex:0.162.1`, `docker.io/docker/sbx-kit-copilot:1.0.86`). Versions: release `v0.2.0` is the current spec v3 kit; `v0.1.0-v2` is the legacy spec v2 kit.
+
 ### Publish the kit (optional)
 
-A v3 kit is an OCI image, so others can use it without cloning the repo. `sbx kit push` is v1/v2 only on sbx 0.48.0; publish with buildx and a **`docker-container` builder** (Docker Desktop's default builder pushes a plain image that sbx rejects with "no artifactType"):
+`docker.io/yadayac/reshapr-kit:0.2.0` is already published; this section is for publishing your own copy. A v3 kit is an OCI image, so others can use it without cloning the repo. `sbx kit push` is v1/v2 only on sbx 0.48.0; publish with buildx and a **`docker-container` builder** (Docker Desktop's default builder pushes a plain image that sbx rejects with "no artifactType"):
 
 ```bash
 REF=docker.io/<your-namespace>/reshapr-kit:0.2.0
@@ -135,7 +145,7 @@ docker buildx build ./reshapr -f ./reshapr/reshapr.yaml -t "$REF" --builder kitp
 sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit "$REF"
 ```
 
-(The kit's name comes from the repository name, so `reshapr-kit` above.) Tested with a throwaway tag; no release has been published yet.
+(The kit's name comes from the repository name, so `reshapr-kit` above.)
 
 ### Use the MCP server from a host client (MCPJam, Inspector, …)
 
