@@ -47,7 +47,9 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    Live Copilot prompt, 14 Oct 2026, sbx 0.48.0: with the published kit `docker.io/yadayac/reshapr-kit:0.2.0` on `sbx-kit-copilot:1.0.86`, "give the forecast in SFO" made Copilot find `reshapr-get_v1_forecast` by tool search, call it, and answer from the reShapr server data (key injected by the proxy, never in the sandbox).
 6. **Negative tests.** No or wrong key gives 401. Direct access from the sandbox to the backend is blocked (403 under
    deny-all) while the same API works through the reShapr server.
-7. **Checks done:** `make verify` for the three agents on the v3 kit (sbx 0.48.0). On the v2 kit: `sbx kit validate`, the sbx-kits-contrib TCK (`TestKitTCK`) and the e2e suite.
+7. **Checks done:** `make verify` for the three agents on the v3 kit (sbx 0.48.0). TCK on the v3 kit: `kit-tck` 3.0.0-m.8
+   (contrib `scripts/test-kit.sh`) conforms, 19/19, on the local kit and on the published `docker.io/yadayac/reshapr-kit:0.2.0`
+   (republished multi-platform amd64+arm64 with provenance). On the v2 kit: `sbx kit validate`, `TestKitTCK` and the e2e suite.
 8. **v3 migration** (done on branch `v3`, merged into `main`; v2 is tagged `v0.1.0-v2`). Answers to the open questions:
    - `localhost:7777` (with the port) is accepted in the allow rule; hooks see `${{ kit.args.* }}`; the credential works as `optional: true`.
    - No image recipe is needed: `agent-context` uses inline `content`, and args are exported with `env:` (`RESHAPR_PORT`, `RESHAPR_EXPOSITION`). The v2 `RESHAPR_MCP_URL` variable is gone.
@@ -91,7 +93,14 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
   It needs a one-time `sbx --app-name sbx-kits-contrib-tck login`, which can be rate-limited by Docker's auth service.
   The log notes that no binding authorizes `reshapr`, which is expected: the user-side binding is created by `scripts/bind.sh`.
 - [ ] Live prompts for Codex and Claude (need `sbx secret set openai` / `anthropic`). Check that the proxy injects their credentials on the published v3 workloads, as it does for Copilot. Copilot is done: a live prompt works through the published kit.
-- [ ] Re-run the e2e suite (and the TCK, if reachable) against the v3 kit; both passed on the v2 kit only. Also untested on v3: custom `--kit-arg` values, `make down` on a clean machine.
+- [x] **TCK on the v3 kit:** passed (see finding 7).
+- [ ] **e2e suite on the v3 kit: blocked on sbx 0.48.0** (contrib `v3` `scripts/test-kit-e2e.sh`). Not a kit failure; the policy log under
+  `deny-all` was empty. Three attempts:
+  - default `./claude` base: the built-in `claude` agent already holds the name, and the renamed copy fails to build on the default builder;
+  - with `SBX_KIT_BUILDER=sandbox`: the build works, but the scoped daemon fails with `403 pull failed for image "sbx-kit-src:claude-e2e-…"`;
+  - `E2E_HOST=claude` (built-in): `no workload kit in the set`.
+  Retry on a newer sbx channel (`scripts/install-sbx.sh`), since the e2e workflow says the stable line predates kit v3.
+- [ ] Untested on v3: custom `--kit-arg` values, `make down` on a clean machine.
 - [ ] Upstream issue: a revoked credential stays tied to a sandbox name (finding 10), with the log lines and the repro.
 - [ ] Isolated sbx daemon mode (`SBX_APP`): login did not persist in tests; retest or drop.
 - [ ] Deferred: OAuth2, several expositions, remote reShapr server, a "builder" kit (reShapr CLI + the `reshapr-builder`
