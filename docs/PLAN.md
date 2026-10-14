@@ -47,7 +47,7 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
 6. **Negative tests.** No or wrong key gives 401. Direct access from the sandbox to the backend is blocked (403 under
    deny-all) while the same API works through the reShapr server.
 7. **Checks done:** `make verify` for the three agents on the v3 kit (sbx 0.48.0). On the v2 kit: `sbx kit validate`, the sbx-kits-contrib TCK (`TestKitTCK`) and the e2e suite.
-8. **v3 migration** (branch `v3`, v2 tagged `v0.1.0-v2`). Answers to the open questions:
+8. **v3 migration** (done on branch `v3`, merged into `main`; v2 is tagged `v0.1.0-v2`). Answers to the open questions:
    - `localhost:7777` (with the port) is accepted in the allow rule; hooks see `${{ kit.args.* }}`; the credential works as `optional: true`.
    - No image recipe is needed: `agent-context` uses inline `content`, and args are exported with `env:` (`RESHAPR_PORT`, `RESHAPR_EXPOSITION`). The v2 `RESHAPR_MCP_URL` variable is gone.
    - Hook environments are deny-by-default: each hook declares `env: [RESHAPR_API_KEY]`. The credential spans `[install, runtime]`, so the allow rule is in both phases.
@@ -60,6 +60,11 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    - `docker buildx build ./reshapr -f ./reshapr/reshapr.yaml -t <ref> --push` with Docker Desktop's default `docker` driver pushes a plain image; `sbx kit inspect` rejects it ("no artifactType").
    - The same command with a `docker-container` builder (`--builder kitpub`) pushes a valid kit artifact. `sbx create <workload> --kit <ref>` then pulls it, runs the hooks, and Claude shows the reshapr server `Connected`.
    - The kit directory is named `reshapr`, so a local build shows the kit as `reshapr`. With the older `kit/` name it showed as `kit`.
+   - Releases: `v0.2.0` (spec v3, latest) and `v0.1.0-v2` (legacy pre-release). The published image was checked by creating a sandbox from it for Claude, Codex and Copilot (MCP registration, key `proxy-managed`).
+10. **Sandbox name and "Bad credentials"** (observed on sbx 0.47.0 and 0.48.0). A Copilot sandbox named `reshapr-poc` kept failing with `GitHub returned: Bad credentials` even with the `github` and `copilot` secrets set before creation. The same `sbx create` command under any other name (`reshapr-cop`, `other-poc`, `reshapr-sbx`) worked, with the published workload `sbx-kit-copilot:1.0.86` and with the built-in `copilot`.
+   - The daemon log shows `secrets: credential revoked` for that `vm_id` (service `github`, and `copilot` earlier), about 3,000 times since 12 Oct. For working names it shows `proxy: overriding client-supplied credential with host credential` instead, which is the proxy swapping the placeholder `GH_TOKEN` for the real token.
+   - The revoked state survives `sbx rm`, recreating the sandbox and `sbx daemon restart`. The cause and the place where it is stored are unknown. `sbx reset` might clear it (untested, destructive).
+   - An earlier theory, that the published v3 Copilot workload does not inject the `github` token, was wrong: it injects fine under a fresh name. The default sandbox name is now `reshapr-sbx`; set `SANDBOX=<name>` to use another one.
 
 ## 4. Design decisions and limits
 
@@ -84,8 +89,9 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
   kit's default args (no `testdata/tck.yaml` needed, no `/dev/kvm` needed). Subtests `env`, `tmpfs` and `agentContext` pass.
   It needs a one-time `sbx --app-name sbx-kits-contrib-tck login`, which can be rate-limited by Docker's auth service.
   The log notes that no binding authorizes `reshapr`, which is expected: the user-side binding is created by `scripts/bind.sh`.
-- [ ] Live prompts for Codex and Claude (need their logins). Copilot is done.
-- [ ] Re-run the e2e suite (and the TCK, if reachable) against the v3 kit; both passed on the v2 kit only.
+- [ ] Live prompts for Codex and Claude (need `sbx secret set openai` / `anthropic`). Check that the proxy injects their credentials on the published v3 workloads, as it does for Copilot. Copilot is done: a live prompt works through the published kit.
+- [ ] Re-run the e2e suite (and the TCK, if reachable) against the v3 kit; both passed on the v2 kit only. Also untested on v3: custom `--kit-arg` values, `make down` on a clean machine.
+- [ ] Upstream issue: a revoked credential stays tied to a sandbox name (finding 10), with the log lines and the repro.
 - [ ] Isolated sbx daemon mode (`SBX_APP`): login did not persist in tests; retest or drop.
 - [ ] Deferred: OAuth2, several expositions, remote reShapr server, a "builder" kit (reShapr CLI + the `reshapr-builder`
   skill, no Docker in the sandbox, low-privilege control-plane credential), Code Mode (reShapr 1.1 roadmap),
