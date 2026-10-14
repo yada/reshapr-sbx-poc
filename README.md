@@ -19,7 +19,7 @@ Demo backend: the public [Open-Meteo](https://open-meteo.com) weather API (no ac
 
 ## Prerequisites
 
-Docker (Compose v2), `sbx` signed in (`sbx login`), `curl`, and the reShapr CLI (Node 22+):
+Docker (Compose v2), `sbx` 0.48.0 or later, signed in (`sbx login`), `curl`, and the reShapr CLI (Node 22+):
 `npm install -g @reshapr/reshapr-cli --allow-scripts=@scarf/scarf` ([docs](https://reshapr.io/docs/tutorials/getting-started)).
 The global install is optional: if `reshapr` is not on your PATH, the scripts run the same CLI on demand with `npx @reshapr/reshapr-cli@<release>` (pinned to `RESHAPR_RELEASE`). That path needs Node 22+ and is slower on the first run because the CLI is downloaded.
 
@@ -57,7 +57,7 @@ For Codex a live prompt was not tested (it needs its own login); the reShapr ser
 
 ```bash
 sbx exec reshapr-poc bash -s < scripts/mcp-smoke.sh   # MCP round trip, key injected by the proxy
-sbx exec -it reshapr-poc bash                         # shell; try curl against $RESHAPR_MCP_URL
+sbx exec -it reshapr-poc bash                         # shell; try curl against http://host.docker.internal:$RESHAPR_PORT/mcp/$RESHAPR_EXPOSITION
 sbx exec reshapr-poc copilot mcp list                 # registration (or claude / codex)
 ```
 
@@ -117,10 +117,25 @@ Symptoms (observed): without `github`, Copilot starts with `Authentication token
 reshapr import -u <openapi-url> --backendEndpoint <api-base-url> --apiKey --audit   # prints the API key once
 reshapr expo list                                                                  # find <org>/<exposition-name>
 sbx secret rm reshapr --force; sbx secret set reshapr                              # paste the key
-sbx create claude --kit ./kit --kit-arg exposition=<org>/<exposition-name>         # kit arg, see `sbx create --help`
+sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit ./reshapr --kit-arg exposition=<org>/<exposition-name>   # see `sbx create --help`
 ```
 
 (The `reshapr` CLI here is the one from `make up`: it keeps its session in `.state/home`, so run it with `HOME=$PWD/.state/home`.)
+
+### Publish the kit (optional)
+
+A v3 kit is an OCI image, so others can use it without cloning the repo. `sbx kit push` is v1/v2 only on sbx 0.48.0; publish with buildx and a **`docker-container` builder** (Docker Desktop's default builder pushes a plain image that sbx rejects with "no artifactType"):
+
+```bash
+REF=docker.io/<your-namespace>/reshapr-kit:0.2.0
+docker buildx create --name kitpub --driver docker-container
+docker buildx build ./reshapr -f ./reshapr/reshapr.yaml -t "$REF" --builder kitpub --push
+
+# consume it, no local build:
+sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit "$REF"
+```
+
+(The kit's name comes from the repository name, so `reshapr-kit` above.) Tested with a throwaway tag; no release has been published yet.
 
 ### Use the MCP server from a host client (MCPJam, Inspector, …)
 
@@ -138,7 +153,7 @@ The same server can be queried outside sbx. Auth is an API key in a custom heade
 
 | Path | Purpose |
 |---|---|
-| `kit/spec.yaml` | The kit (v2 mixin): args, credential, network allow, MCP registration, agent instructions |
+| `reshapr/reshapr.yaml` | The kit (v3 mixin): args, credential, network allow, MCP registration, agent instructions |
 | `scripts/up.sh` | `reshapr run -r <release> [--ui]` (reShapr's official all-in-one stack), CLI login, API import, saves the key to `.state/api-key` |
 | `scripts/bind.sh` | Creates the user-side sbx credential binding (only if absent) |
 | `scripts/verify.sh`, `mcp-smoke.sh` | Sandbox creation and checks |
@@ -150,7 +165,10 @@ Kit args: `port` (default `7777`) and `exposition` (`<org>/<exposition-name>`, s
 
 ## How it works, and the gotchas
 
-- Inside the sandbox, `localhost` is the sandbox itself, so clients (the `RESHAPR_MCP_URL` env var and each agent's MCP config) use `host.docker.internal:7777` to reach the host. The sbx proxy also handles host traffic and rewrites `host.docker.internal` to **`localhost`**. So the allow rule (`localhost:7777`) and the credential `inject.domain` (`localhost`) must both use `localhost`.
+- Inside the sandbox, `localhost` is the sandbox itself, so clients (each agent's MCP config, and `scripts/mcp-smoke.sh`) use `host.docker.internal:7777` to reach the host. The sbx proxy also handles host traffic and rewrites `host.docker.internal` to **`localhost`**. So the allow rule (`localhost:7777`) and the credential `inject.domain` (`localhost`) must both use `localhost`.
+- The kit is **schema v3** (`reshapr/reshapr.yaml`; the v2 version is tagged `v0.1.0-v2`). A v3 mixin must be composed with a v3 *workload*: the built-in names `claude` and `codex` failed with "no workload kit in the set", so `make verify` uses the published workloads (`docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`).
+- v3 source kits are built, not just parsed. On Docker Desktop's classic image store the host build fails ("OCI exporter is not supported for the docker driver"), so the scripts set `SBX_KIT_BUILDER=sandbox` to build in sbx's builder sandbox. `sbx kit validate` doesn't accept v3 source kits; `make validate` runs `sbx kit inspect` instead.
+- A v3 mixin can't set an environment variable without an image recipe, so the v2 `RESHAPR_MCP_URL` is gone. The args are exported as `RESHAPR_PORT` and `RESHAPR_EXPOSITION` instead.
 - sbx injects a credential only into domains the **user** allows. `scripts/bind.sh` creates `~/.config/sbx/credentials.yaml` (`reshapr` → `localhost`) if that file doesn't exist; `make down` removes it if the POC created it. Otherwise you get `credential not sent: no binding authorizes this service`.
 - Store the key with `sbx secret set reshapr` (global) **before** creating the sandbox: `SBX_CRED_RESHAPR_MODE` is fixed at creation. Rotate with `sbx secret rm reshapr --force` then `set`.
 - Do not copy the grafana kit's `NO_PROXY` override: it bypasses the proxy and the injection.
@@ -165,7 +183,7 @@ Design notes, findings and the TODO list: [docs/PLAN.md](docs/PLAN.md).
 
 - One exposition per kit (the credential service is fixed to `reshapr`); local reShapr server only; API-key auth only (no OAuth2).
 - Codex: registration and the reShapr server path are verified; a live prompt is not. Claude: live prompt not tested either. Copilot: live prompt verified.
-- The kit passes `sbx kit validate` and the sbx-kits-contrib TCK (`KIT=$PWD/kit go test ./tck -run TestKitTCK`, run from that repo). Its e2e suite also passes (`scripts/test-kit-e2e.sh <path-to>/kit`, from that repo).
+- The v3 kit builds with `SBX_KIT_BUILDER=sandbox sbx kit inspect ./reshapr` (`make validate`) and passes `make verify` for claude, codex and copilot. The v2 version passed `sbx kit validate`, the sbx-kits-contrib TCK (`TestKitTCK`) and the e2e suite (`scripts/test-kit-e2e.sh <path-to-kit-dir>`) on sbx 0.47.0; those two have **not** been re-run on v3 (the TCK lives in a private repo for v3).
 - Next: remote reShapr server, several expositions, OAuth2, a "builder" kit (reShapr CLI + the `reshapr-builder` skill).
 
 ## License

@@ -12,9 +12,9 @@ say "Storing the API key on the host (never enters the sandbox)"
 "${SBX[@]}" secret rm reshapr --force >/dev/null 2>&1 || true
 "${SBX[@]}" secret set reshapr < "$STATE/api-key" 2>&1 | tail -1
 
-say "Creating sandbox '$SANDBOX' ($AGENT + kit/)"
+say "Creating sandbox '$SANDBOX' ($BASE + reshapr kit)"
 "${SBX[@]}" rm -f "$SANDBOX" >/dev/null 2>&1 || true
-"${SBX[@]}" create "$AGENT" --name "$SANDBOX" --kit "$ROOT/kit" </dev/null 2>&1 | grep -E "Created|WARN|rror" || true
+"${SBX[@]}" create "$BASE" --name "$SANDBOX" --kit "$ROOT/reshapr" </dev/null 2>&1 | grep -E "Created|WARN|rror" || true
 
 say "1. The agent has the reshapr MCP server registered ($AGENT)"
 # claude reports a live connection; codex and copilot only list the registration

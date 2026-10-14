@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Runs INSIDE the sandbox (piped by verify.sh). Plain MCP over HTTP, no agent needed.
 set -u
-URL="${RESHAPR_MCP_URL:?RESHAPR_MCP_URL not set; is the kit applied?}"
+PORT="${RESHAPR_PORT:?RESHAPR_PORT not set; is the kit applied?}"
+EXPO="${RESHAPR_EXPOSITION:?RESHAPR_EXPOSITION not set; is the kit applied?}"
+URL="http://host.docker.internal:${PORT}/mcp/${EXPO}"
 H=(-H "x-reshapr-key: ${RESHAPR_API_KEY:-}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
 
 echo "key seen by the sandbox : ${RESHAPR_API_KEY:-<unset>}   (placeholder expected)"

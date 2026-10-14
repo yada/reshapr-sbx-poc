@@ -10,4 +10,4 @@ down:     ## remove everything
 	./scripts/down.sh
 
 validate: ## static check of the kit
-	sbx kit validate ./kit
+	SBX_KIT_BUILDER=sandbox sbx kit inspect ./reshapr
