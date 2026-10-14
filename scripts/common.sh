@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="$ROOT/.state"
-SANDBOX="${SANDBOX:-reshapr-poc}"
+SANDBOX="${SANDBOX:-reshapr-sbx}"
 AGENT="${AGENT:-claude}"
 PORT="${PORT:-7777}"
 EXPOSITION="${EXPOSITION:-reshapr/open-meteo-weather-forecast-api-1-0-default}"

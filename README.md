@@ -56,9 +56,9 @@ For Codex a live prompt was not tested (it needs its own login); the reShapr ser
 ### Try it without an agent login
 
 ```bash
-sbx exec reshapr-poc bash -s < scripts/mcp-smoke.sh   # MCP round trip, key injected by the proxy
-sbx exec -it reshapr-poc bash                         # shell; try curl against http://host.docker.internal:$RESHAPR_PORT/mcp/$RESHAPR_EXPOSITION
-sbx exec reshapr-poc copilot mcp list                 # registration (or claude / codex)
+sbx exec reshapr-sbx bash -s < scripts/mcp-smoke.sh   # MCP round trip, key injected by the proxy
+sbx exec -it reshapr-sbx bash                         # shell; try curl against http://host.docker.internal:$RESHAPR_PORT/mcp/$RESHAPR_EXPOSITION
+sbx exec reshapr-sbx copilot mcp list                 # registration (or claude / codex)
 ```
 
 ### Try it with a live prompt
@@ -81,7 +81,7 @@ sbx secret set copilot --command "$(which gh) auth token"
 
 make down && make up            # recreate, so the credential applies
 AGENT=<agent> make verify       # creates the sandbox, e.g. AGENT=copilot
-sbx run reshapr-poc             # start the agent
+sbx run reshapr-sbx             # start the agent
 ```
 
 > **Warning:** `gh auth token` returns your `gh` login token, which has broad scopes (for example `repo`, `workflow`, `read:org`). The sbx proxy injects it only on the Copilot domains and it never enters the sandbox, but a fine-grained PAT limited to *Copilot Requests* is the least-privilege choice.
@@ -104,7 +104,7 @@ sbx secret set github  --command "$(which gh) auth token"
 sbx secret set copilot --command "$(which gh) auth token"
 sbx secret ls                   # check both are listed
 make down && make up && AGENT=copilot make verify
-sbx run reshapr-poc
+sbx run reshapr-sbx
 ```
 
 Symptoms (observed): without `github`, Copilot starts with `Authentication token found but could not be validated. GitHub returned: Bad credentials`; with `github` but without `copilot`, the model catalog returns 401.
@@ -136,7 +136,7 @@ The kit is published on Docker Hub as `docker.io/yadayac/reshapr-kit:0.2.0`, so 
 
 ```bash
 BASE=docker.io/docker/sbx-kit-claude:2.1.296   # pick a workload from the table
-sbx create "$BASE" --name reshapr-poc --kit docker.io/yadayac/reshapr-kit:0.2.0
+sbx create "$BASE" --name reshapr-sbx --kit docker.io/yadayac/reshapr-kit:0.2.0
 ```
 
 Versions: release `v0.2.0` is the current spec v3 kit; `v0.1.0-v2` is the legacy spec v2 kit.
@@ -166,7 +166,7 @@ The same server can be queried outside sbx. Auth is an API key in a custom heade
 
 ### Isolated sbx daemon (experimental)
 
-`sbx --app-name reshapr-poc login`, `sbx --app-name reshapr-poc policy init deny-all`, then `SBX_APP=reshapr-poc make verify`. It needs an interactive login and was not reliable in my tests; the default daemon is the tested path.
+`sbx --app-name reshapr-sbx login`, `sbx --app-name reshapr-sbx policy init deny-all`, then `SBX_APP=reshapr-sbx make verify`. It needs an interactive login and was not reliable in my tests; the default daemon is the tested path.
 
 ## What's in the repo
 
