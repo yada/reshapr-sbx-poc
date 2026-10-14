@@ -27,8 +27,10 @@ credentials:
       name: RESHAPR_API_KEY
       proxyManaged: true
       inject:
-        # The sbx proxy rewrites host.docker.internal to localhost, and matches
-        # both the allow-list and the inject rule on that rewritten name.
+        # Inside the sandbox, "localhost" is the sandbox itself, so clients reach
+        # the host's reShapr server as host.docker.internal. The sbx proxy then
+        # rewrites that name to localhost and matches both the allow-list and
+        # the inject rule on the rewritten name, hence "localhost" below.
         - domain: localhost
           header: x-reshapr-key
           format: "%s"
@@ -40,6 +42,7 @@ permissions:
 
 environment:
   variables:
+    # host.docker.internal = the host, as seen from the sandbox (see inject note above)
     RESHAPR_MCP_URL: "http://host.docker.internal:${{ kit.args.port }}/mcp/${{ kit.args.exposition }}"
 
 setup:

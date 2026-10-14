@@ -150,7 +150,7 @@ Kit args: `port` (default `7777`) and `exposition` (`<org>/<exposition-name>`, s
 
 ## How it works, and the gotchas
 
-- The sbx proxy also handles host traffic and rewrites `host.docker.internal` to **`localhost`**. So the allow rule (`localhost:7777`) and the credential `inject.domain` (`localhost`) must both use `localhost`.
+- Inside the sandbox, `localhost` is the sandbox itself, so clients (the `RESHAPR_MCP_URL` env var and each agent's MCP config) use `host.docker.internal:7777` to reach the host. The sbx proxy also handles host traffic and rewrites `host.docker.internal` to **`localhost`**. So the allow rule (`localhost:7777`) and the credential `inject.domain` (`localhost`) must both use `localhost`.
 - sbx injects a credential only into domains the **user** allows. `scripts/bind.sh` creates `~/.config/sbx/credentials.yaml` (`reshapr` → `localhost`) if that file doesn't exist; `make down` removes it if the POC created it. Otherwise you get `credential not sent: no binding authorizes this service`.
 - Store the key with `sbx secret set reshapr` (global) **before** creating the sandbox: `SBX_CRED_RESHAPR_MODE` is fixed at creation. Rotate with `sbx secret rm reshapr --force` then `set`.
 - Do not copy the grafana kit's `NO_PROXY` override: it bypasses the proxy and the injection.
