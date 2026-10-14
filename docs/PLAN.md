@@ -55,7 +55,7 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    - A v3 mixin needs a v3 *workload*. The built-in `claude` and `codex` names failed with "no workload kit in the set" (cause not confirmed). The published `docker.io/docker/sbx-kit-{claude,codex,copilot}:<version>` workloads compose fine and are pinned in `scripts/common.sh`.
    - Building the contrib `claude` workload from source in the builder hung on `claude.ai/install.sh`; not needed, since the published image works.
    - Related upstream issues (all closed): `docker/sbx-releases#671`, `#682` (fixed in 0.48.0), `#677` (Windows, fixed on `main` for 0.49.0).
-9. **Publishing a v3 kit** (tested with a throwaway `docker.io/yadayac/reshapr-kit:0.2.0-test`):
+9. **Publishing a v3 kit** (first tested with a throwaway tag, since deleted; now published as `docker.io/yadayac/reshapr-kit:0.2.0`):
    - `sbx kit push` is v1/v2 only on 0.48.0 (it requires `spec.yaml`).
    - `docker buildx build ./reshapr -f ./reshapr/reshapr.yaml -t <ref> --push` with Docker Desktop's default `docker` driver pushes a plain image; `sbx kit inspect` rejects it ("no artifactType").
    - The same command with a `docker-container` builder (`--builder kitpub`) pushes a valid kit artifact. `sbx create <workload> --kit <ref>` then pulls it, runs the hooks, and Claude shows the reshapr server `Connected`.
