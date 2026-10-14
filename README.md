@@ -69,13 +69,14 @@ The agent needs its own credential. Store it on the host **before** the sandbox 
 |---|---|---|
 | claude | `anthropic` | Console API key or Claude subscription login (optional: `/login` also works inside the sandbox) |
 | codex | `openai` | OpenAI API key or ChatGPT login |
-| copilot | `copilot` | Your `gh auth token` output (pasted or via Option B below, both tested), or a fine-grained PAT with the *Copilot Requests* permission. The `github` service only covers `gh` and git |
+| copilot | **both** `github` and `copilot` | Your `gh auth token` output for each (pasted or via Option B below, both tested), or a fine-grained PAT with the *Copilot Requests* permission. See "Copilot needs two secrets" below |
 
 ```bash
 # Option A: paste a token when prompted
-sbx secret set <service>        # from the table above, e.g. copilot
+sbx secret set <service>        # from the table above, e.g. anthropic or openai
 
 # Option B (Copilot): sbx reads the token from your gh login on the host
+sbx secret set github  --command "$(which gh) auth token"
 sbx secret set copilot --command "$(which gh) auth token"
 
 make down && make up            # recreate, so the credential applies
@@ -86,6 +87,27 @@ sbx run reshapr-poc             # start the agent
 > **Warning:** `gh auth token` returns your `gh` login token, which has broad scopes (for example `repo`, `workflow`, `read:org`). The sbx proxy injects it only on the Copilot domains and it never enters the sandbox, but a fine-grained PAT limited to *Copilot Requests* is the least-privilege choice.
 
 Then ask *"What's the weather forecast for Paris? Use the reshapr tools."*
+
+#### Copilot needs two secrets
+
+The Copilot kit declares two credential services, and both must be set before the sandbox is created:
+
+| Service | Injected on | Used for |
+|---|---|---|
+| `github` | `api.github.com`, `github.com` | Copilot validates its token here at startup |
+| `copilot` | `*.githubcopilot.com`, `copilot.github.com` | Model calls |
+
+Both can hold the same value (`gh auth token`, or a fine-grained PAT with *Copilot Requests*). Steps:
+
+```bash
+sbx secret set github  --command "$(which gh) auth token"
+sbx secret set copilot --command "$(which gh) auth token"
+sbx secret ls                   # check both are listed
+make down && make up && AGENT=copilot make verify
+sbx run reshapr-poc
+```
+
+Symptoms (observed): without `github`, Copilot starts with `Authentication token found but could not be validated. GitHub returned: Bad credentials`; with `github` but without `copilot`, the model catalog returns 401.
 
 ### Use your own API
 
@@ -134,7 +156,7 @@ Kit args: `port` (default `7777`) and `exposition` (`<org>/<exposition-name>`, s
 - Do not copy the grafana kit's `NO_PROXY` override: it bypasses the proxy and the injection.
 - `claude mcp add` is not idempotent, hence `|| true` in the install step.
 - The first forecast call can hit reShapr's 3 s backend timeout (`Backend timed out after 3000ms`); `make verify` retries it up to 3 times.
-- Live prompts need the agent's own credential, set before creating the sandbox (see the table under "Try it with a live prompt").
+- Live prompts need the agent's own credential, set before creating the sandbox (see the table under "Try it with a live prompt"). Copilot needs both `github` and `copilot`; "Bad credentials" means `github` is missing. Set it, then recreate the sandbox.
 - Dev-only credentials (`admin/password`, fixed keys in reShapr's local compose stack). Never reuse them.
 
 ## Limits and next steps
