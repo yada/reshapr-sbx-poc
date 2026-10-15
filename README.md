@@ -32,7 +32,7 @@ Pick an agent, then follow path A (the kit) or path B (the sbx MCP gateway). Bot
 | Agent | `BASE` | Secrets to set | Live prompt tested |
 |---|---|---|---|
 | Claude | `docker.io/docker/sbx-kit-claude:2.1.296` | `anthropic` (create the key in a dedicated Anthropic Console workspace) | kit and gateway |
-| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) | kit |
+| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) | kit and gateway |
 | Codex | `docker.io/docker/sbx-kit-codex:0.162.1` | `openai` | not yet (registration only) |
 
 **1. Start reShapr** (clone this repo first):
@@ -204,7 +204,7 @@ sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-f
 sbx create "$BASE" --name reshapr-gw --static-mcp reshapr   # no --kit
 ```
 
-Tested on sbx 0.48.0: Claude, Codex and Copilot each register `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. Claude was also tested with a live prompt (macOS, API key); Codex and Copilot only registered the gateway. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
+Tested on sbx 0.48.0: Claude, Codex and Copilot each register `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. Claude and Copilot were also tested with a live prompt (macOS; Claude with an API key, Copilot with `gh auth token`); Codex only registered the gateway. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
 
 Differences from the kit:
 
@@ -212,7 +212,7 @@ Differences from the kit:
 - It is host state, not an artifact: nothing to distribute, and no agent-context text.
 - The agent sees one `mcp-gateway`, not a server called `reshapr`, so "use the reshapr tool" fails. Name the tool, or add a line to your project instructions.
 - After rotating the secret, restart the sandbox.
-- Copilot is not on the docs' list of supported agents, but it registered the gateway in the test.
+- Copilot is not on the docs' list of supported agents, but it works: a live prompt called `get_v1_forecast` through `mcp-gateway`, including an hourly follow-up.
 
 Use the kit for a single `--kit` command and the agent-context text; use the gateway if you prefer to keep the key out of the sandbox entirely.
 

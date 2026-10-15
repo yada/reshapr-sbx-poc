@@ -74,7 +74,8 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    - The API key is absent from the sandbox filesystem. No allow rule was needed, and a direct request to `host.docker.internal:7777` returned 403.
    - If the secret is not stored before `sbx mcp add`, the add fails with an OAuth discovery error. Rotating the secret needs a sandbox restart.
    - Live Claude run (15 Oct 2026): works. Downside: the agent sees one `mcp-gateway` and an unprefixed tool, so it cannot address `reshapr` by name. The kit's agent-context note avoids this; with the gateway, add a line to the project instructions or the prompt.
-   - Not verified: a live prompt with Codex or Copilot through the gateway, and non-macOS hosts.
+   - Live Copilot run (15 Oct 2026, `sbx-kit-copilot:1.0.86`, `gh auth token`): works on both paths. Kit: Copilot found `reshapr-get_v1_forecast` by tool search and answered for SFO (no timeout). Gateway: `get_v1_forecast (MCP: mcp-gateway)` was called directly, and an hourly follow-up ("tomorrow, hour by hour") worked too, although Copilot is not on the docs' supported-agent list.
+   - Not verified: a live prompt with Codex through the gateway, and non-macOS hosts.
 
 ## 4. Design decisions and limits
 
