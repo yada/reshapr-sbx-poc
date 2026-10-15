@@ -67,7 +67,7 @@ The agent needs its own credential. Store it on the host **before** the sandbox 
 
 | Agent | `sbx secret set …` | What to paste |
 |---|---|---|
-| claude | `anthropic` | Console API key or Claude subscription login (optional: `/login` also works inside the sandbox) |
+| claude | `anthropic` | Console API key or Claude subscription login (optional: `/login` also works inside the sandbox). Create the key in a dedicated Anthropic Console workspace with its own spend limit, not at org level |
 | codex | `openai` | OpenAI API key or ChatGPT login |
 | copilot | **both** `github` and `copilot` | Your `gh auth token` output for each (pasted or via Option B below, both tested), or a fine-grained PAT with the *Copilot Requests* permission. See "Copilot needs two secrets" below |
 
@@ -86,7 +86,7 @@ sbx run reshapr-sbx             # start the agent
 
 > **Warning:** `gh auth token` returns your `gh` login token, which has broad scopes (for example `repo`, `workflow`, `read:org`). The sbx proxy injects it only on the Copilot domains and it never enters the sandbox, but a fine-grained PAT limited to *Copilot Requests* is the least-privilege choice.
 
-Then ask *"What's the weather forecast for Paris? Use the reshapr tools."*
+Then ask *"What's the weather forecast for Paris? Use the reshapr tools."* The first call to the backend may time out (3 s backend timeout); the agent usually retries with a smaller request.
 
 #### Copilot needs two secrets
 
@@ -152,12 +152,13 @@ sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-f
 sbx create "$BASE" --name reshapr-gw --static-mcp reshapr   # no --kit
 ```
 
-Tested on sbx 0.48.0 with Claude, Codex and Copilot: each one registers `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
+Tested on sbx 0.48.0: Claude, Codex and Copilot each register `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. Claude was also tested with a live prompt (macOS, API key); Codex and Copilot only registered the gateway. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
 
 Differences from the kit:
 
 - The tool is named `get_v1_forecast` (not `reshapr-get_v1_forecast`), and the gateway adds `code-mode` and `mcp-exec`.
 - It is host state, not an artifact: nothing to distribute, and no agent-context text.
+- The agent sees one `mcp-gateway`, not a server called `reshapr`, so "use the reshapr tool" fails. Name the tool, or add a line to your project instructions.
 - After rotating the secret, restart the sandbox.
 - Copilot is not on the docs' list of supported agents, but it registered the gateway in the test.
 
