@@ -75,7 +75,8 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    - If the secret is not stored before `sbx mcp add`, the add fails with an OAuth discovery error. Rotating the secret needs a sandbox restart.
    - Live Claude run (15 Oct 2026): works. Downside: the agent sees one `mcp-gateway` and an unprefixed tool, so it cannot address `reshapr` by name. The kit's agent-context note avoids this; with the gateway, add a line to the project instructions or the prompt.
    - Live Copilot run (15 Oct 2026, `sbx-kit-copilot:1.0.86`, `gh auth token`): works on both paths. Kit: Copilot found `reshapr-get_v1_forecast` by tool search and answered for SFO (no timeout). Gateway: `get_v1_forecast (MCP: mcp-gateway)` was called directly, and an hourly follow-up ("tomorrow, hour by hour") worked too, although Copilot is not on the docs' supported-agent list.
-   - Not verified: a live prompt with Codex through the gateway, and non-macOS hosts.
+   - Live Codex run (15 Oct 2026, `sbx-kit-codex:0.162.1`, OpenAI API key): works on both paths, but only when the prompt says "using the reshapr tool". Kit: Codex read `kits-agent-context/reshapr-kit.md` and called `reshapr.get_v1_forecast` (8 s). Gateway: `mcp-gateway.get_v1_forecast` (6 s). Without the hint, on both paths, Codex used its built-in web search and returned different numbers; the agent-context note did not change that.
+   - Not verified: non-macOS hosts.
 
 ## 4. Design decisions and limits
 
@@ -102,9 +103,9 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
   It needs a one-time `sbx --app-name sbx-kits-contrib-tck login`, which can be rate-limited by Docker's auth service.
   The log notes that no binding authorizes `reshapr`, which is expected: the user-side binding is created by `scripts/bind.sh`.
 - [x] Live prompt for Claude (15 Oct 2026, sbx 0.48.0, Claude Code 2.1.300, API key, published kit `0.2.0` on `sbx-kit-claude`): Claude called `reshapr` and answered with the Paris forecast. The first call hit the 3 s backend timeout and Claude retried with fewer fields.
-- [ ] Live prompt for Codex (needs `sbx secret set openai`). Check that the proxy injects its credential on the published v3 workload.
+- [x] Live prompt for Codex (15 Oct 2026, `sbx secret set openai`, kit and gateway): passes with "using the reshapr tool"; unprompted it uses web search. Possible follow-up: stronger agent-context wording (needs a new kit version).
 - [x] Live prompt through the sbx MCP gateway with Claude (15 Oct 2026): `mcp-gateway - get_v1_forecast` returned the Paris forecast on the first call. Asking Claude to "use the reshapr tool" failed (`Tool "reshapr" not found in gateway`), because the gateway hides the server name (finding 11).
-- [ ] Decide whether to keep both paths (kit and gateway). Codex is still untested on the gateway.
+- [ ] Decide whether to keep both paths (kit and gateway). All three agents now work on both paths.
 - [ ] Untested for Claude: custom `--kit-arg` values, non-macOS hosts, a subscription login, and the kit and the gateway together in one sandbox.
 - [x] **TCK on the v3 kit:** passed (see finding 7).
 - [ ] **e2e suite on the v3 kit: blocked on sbx 0.48.0** (contrib `v3` `scripts/test-kit-e2e.sh`). Not a kit failure; the policy log under

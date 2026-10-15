@@ -54,7 +54,7 @@ sbx secret set copilot --command "$(which gh) auth token"
 export BASE=docker.io/docker/sbx-kit-copilot:1.0.86
 ```
 
-*Codex* (registration only; no live prompt tested yet). Paste your OpenAI key when asked:
+*Codex* (tested live on the kit and the gateway; ask "…using the reshapr tool", because Codex otherwise prefers its built-in web search). Paste your OpenAI key when asked:
 
 ```bash
 sbx secret set openai
@@ -119,7 +119,7 @@ Agents (`AGENT=claude|codex|copilot make verify`, default `claude`):
 | Codex | `~/.codex/config.toml` (`http_headers`) | `codex mcp list` enabled + MCP round trip |
 | Copilot CLI | `~/.copilot/mcp-config.json` (jq merge) | `copilot mcp list` + MCP round trip |
 
-For Codex a live prompt was not tested (it needs its own login); the reShapr server path is proven by the in-sandbox MCP round trip. For Copilot a live prompt was tested: it found and called `get_v1_forecast`.
+For Codex a live prompt was tested with an OpenAI API key: it called `reshapr.get_v1_forecast` when the prompt said "using the reshapr tool"; without that hint it used web search. For Copilot a live prompt was tested: it found and called `get_v1_forecast`.
 
 `make verify` needs **no agent or model login**: it only uses `sbx exec` and `curl` inside the sandbox. Only a live prompt needs the agent's own credential.
 
@@ -222,7 +222,7 @@ sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-f
 sbx create "$BASE" --name reshapr-gw --static-mcp reshapr   # no --kit
 ```
 
-Tested on sbx 0.48.0: Claude, Codex and Copilot each register `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. Claude and Copilot were also tested with a live prompt (macOS; Claude with an API key, Copilot with `gh auth token`); Codex only registered the gateway. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
+Tested on sbx 0.48.0: Claude, Codex and Copilot each register `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. All three were also tested with a live prompt (macOS; Claude and Codex with an API key, Copilot with `gh auth token`). Codex needs "using the reshapr tool" in the prompt, otherwise it uses web search. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
 
 Differences from the kit:
 
@@ -294,7 +294,7 @@ Kit args: `port` (default `7777`) and `exposition` (`<org>/<exposition-name>`, s
 Design notes, findings and the TODO list: [docs/PLAN.md](docs/PLAN.md).
 
 - One exposition per kit (the credential service is fixed to `reshapr`); local reShapr server only; API-key auth only (no OAuth2).
-- Codex: registration and the reShapr server path are verified; a live prompt is not. Claude: live prompt not tested either. Copilot: live prompt verified.
+- Live prompts verified for Claude, Copilot and Codex. Codex prefers its built-in web search for questions like "forecast" unless the prompt says to use the reshapr tool, even with the kit's agent-context note.
 - The v3 kit builds with `SBX_KIT_BUILDER=sandbox sbx kit inspect ./reshapr` (`make validate`) and passes `make verify` for claude, codex and copilot. The v2 version passed `sbx kit validate`, the sbx-kits-contrib TCK (`TestKitTCK`) and the e2e suite (`scripts/test-kit-e2e.sh <path-to-kit-dir>`) on sbx 0.47.0; those two have **not** been re-run on v3 (the TCK lives in a private repo for v3).
 - Next: remote reShapr server, several expositions, OAuth2, a "builder" kit (reShapr CLI + the `reshapr-builder` skill).
 
