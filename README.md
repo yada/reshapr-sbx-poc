@@ -1,6 +1,6 @@
 # reshapr-sbx-poc
 
-Proof of concept: a **Docker Sandboxes (sbx) kit** that gives a sandboxed coding agent governed access to your APIs through a **[reShapr](https://github.com/reshapr-io/reshapr) MCP server**.
+Proof of concept: a **Docker Sandboxes (sbx) kit** that gives a sandboxed coding agent governed access to your APIs through a **[reShapr](https://github.com/reshaprio/reshapr) MCP server**.
 
 - **sbx** isolates the agent (VM, deny-by-default network, credentials kept on the host).
 - **reShapr** turns REST/GraphQL/gRPC APIs into MCP tools, with API-key auth, audit and trimmed responses.
@@ -24,6 +24,58 @@ Docker (Compose v2), `sbx` 0.48.0 or later, signed in (`sbx login`), `curl`, and
 The global install is optional: if `reshapr` is not on your PATH, the scripts run the same CLI on demand with `npx @reshapr/reshapr-cli@<release>` (pinned to `RESHAPR_RELEASE`). That path needs Node 22+ and is slower on the first run because the CLI is downloaded.
 
 Free ports 5555 and 7777 (3333 with `UI=1`).
+
+## Quick start
+
+Pick an agent, then follow path A (the kit) or path B (the sbx MCP gateway). Both paths were tested live with Claude.
+
+| Agent | `BASE` | Secrets to set | Live prompt tested |
+|---|---|---|---|
+| Claude | `docker.io/docker/sbx-kit-claude:2.1.296` | `anthropic` (create the key in a dedicated Anthropic Console workspace) | kit and gateway |
+| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) | kit |
+| Codex | `docker.io/docker/sbx-kit-codex:0.162.1` | `openai` | not yet (registration only) |
+
+**1. Start reShapr** (clone this repo first):
+
+```bash
+make up                                   # reShapr + Open-Meteo, API key on
+./scripts/bind.sh                         # lets the proxy use the reshapr secret
+sbx secret set reshapr < .state/api-key
+sbx secret set anthropic                  # your agent's secret from the table; paste when asked
+export BASE=docker.io/docker/sbx-kit-claude:2.1.296
+```
+
+**2a. Path A, the kit.** Expect the install commands to pass:
+
+```bash
+sbx create "$BASE" --name reshapr-sbx --kit docker.io/yadayac/reshapr-kit:0.2.0
+sbx run reshapr-sbx
+```
+
+**2b. Path B, the gateway** (no kit). Set the secret first. Expect `reshapr  ready` in `sbx mcp ls`:
+
+```bash
+sbx secret set mcp:reshapr:api-key < .state/api-key
+sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default \
+  --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check
+sbx mcp ls
+sbx create "$BASE" --name reshapr-gw --static-mcp reshapr
+sbx run reshapr-gw
+```
+
+**3. Ask:** *"give the forecast in SFO"*. Path A calls `reshapr-get_v1_forecast` through the `reshapr` server; path B calls `get_v1_forecast` through `mcp-gateway`. The first call may time out; the agent retries.
+
+**Which path?** Path A is one `--kit` flag and tells the agent about reShapr. Path B keeps the key out of the sandbox entirely, but the agent can't address `reshapr` by name. Details are [below](#alternative-the-sbx-mcp-gateway-no-kit).
+
+**Clean up:**
+
+```bash
+sbx rm -f reshapr-sbx reshapr-gw
+sbx mcp rm --force reshapr
+sbx secret rm --force mcp:reshapr:api-key
+sbx secret rm --force mcp:reshapr:api-key:endpoint
+make down
+```
 
 ## Run it
 
