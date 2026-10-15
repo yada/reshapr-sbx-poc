@@ -27,32 +27,48 @@ Free ports 5555 and 7777 (3333 with `UI=1`).
 
 ## Quick start
 
-Pick an agent, then follow path A (the kit) or path B (the sbx MCP gateway). Both paths were tested live with Claude.
+Pick an agent, then follow path A (the kit) or path B (the sbx MCP gateway). Run every step in the same terminal, because step 2 sets `BASE` for the later commands.
 
-| Agent | `BASE` | Secrets to set | Live prompt tested |
-|---|---|---|---|
-| Claude | `docker.io/docker/sbx-kit-claude:2.1.296` | `anthropic` (create the key in a dedicated Anthropic Console workspace) | kit and gateway |
-| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) | kit and gateway |
-| Codex | `docker.io/docker/sbx-kit-codex:0.162.1` | `openai` | not yet (registration only) |
-
-**1. Start reShapr** (clone this repo first):
+**1. Start reShapr** (clone this repo first). `make up` starts reShapr with Open-Meteo and an API key, and `bind.sh` lets the sbx proxy use the `reshapr` secret:
 
 ```bash
-make up                                   # reShapr + Open-Meteo, API key on
-./scripts/bind.sh                         # lets the proxy use the reshapr secret
+make up
+./scripts/bind.sh
 sbx secret set reshapr < .state/api-key
-sbx secret set anthropic                  # your agent's secret from the table; paste when asked
+```
+
+**2. Pick your agent** and copy **one** block. Each block stores the agent's own credential and sets `BASE`.
+
+*Claude* (tested live on both paths). Paste your Anthropic key when asked; create it in a dedicated Anthropic Console workspace, not at org level:
+
+```bash
+sbx secret set anthropic
 export BASE=docker.io/docker/sbx-kit-claude:2.1.296
 ```
 
-**2a. Path A, the kit.** Expect the install commands to pass:
+*Copilot* (tested live on both paths). This reads your `gh` login (run `gh auth login` first). See [Copilot needs two secrets](#copilot-needs-two-secrets) for the token-scope warning:
+
+```bash
+sbx secret set github  --command "$(which gh) auth token"
+sbx secret set copilot --command "$(which gh) auth token"
+export BASE=docker.io/docker/sbx-kit-copilot:1.0.86
+```
+
+*Codex* (registration only; no live prompt tested yet). Paste your OpenAI key when asked:
+
+```bash
+sbx secret set openai
+export BASE=docker.io/docker/sbx-kit-codex:0.162.1
+```
+
+**3a. Path A, the kit.** Expect the install commands to pass:
 
 ```bash
 sbx create "$BASE" --name reshapr-sbx --kit docker.io/yadayac/reshapr-kit:0.2.0
 sbx run reshapr-sbx
 ```
 
-**2b. Path B, the gateway** (no kit). Set the secret first. Expect `reshapr  ready` in `sbx mcp ls`:
+**3b. Path B, the gateway** (no kit). Set the secret first. Expect `reshapr  ready` in `sbx mcp ls`:
 
 ```bash
 sbx secret set mcp:reshapr:api-key < .state/api-key
@@ -63,7 +79,7 @@ sbx create "$BASE" --name reshapr-gw --static-mcp reshapr
 sbx run reshapr-gw
 ```
 
-**3. Ask:** *"give the forecast in SFO"*. Path A calls `reshapr-get_v1_forecast` through the `reshapr` server; path B calls `get_v1_forecast` through `mcp-gateway`. The first call may time out; the agent retries.
+**4. Ask:** *"give the forecast in SFO"*. Path A calls `reshapr-get_v1_forecast` through the `reshapr` server; path B calls `get_v1_forecast` through `mcp-gateway`. The first call may time out; the agent retries.
 
 **Which path?** Path A is one `--kit` flag and tells the agent about reShapr. Path B keeps the key out of the sandbox entirely, but the agent can't address `reshapr` by name. Details are [below](#alternative-the-sbx-mcp-gateway-no-kit).
 
@@ -76,6 +92,8 @@ sbx secret rm --force mcp:reshapr:api-key
 sbx secret rm --force mcp:reshapr:api-key:endpoint
 make down
 ```
+
+Your agent's own secret (`anthropic`, `github` and `copilot`, or `openai`) stays stored; remove it with `sbx secret rm --force <name>` if you don't want to keep it.
 
 ## Run it
 
