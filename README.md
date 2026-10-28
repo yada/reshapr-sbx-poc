@@ -84,7 +84,7 @@ sbx create "$BASE" --name reshapr-in --kit docker.io/yadayac/reshapr-inside-sbx:
 sbx run reshapr-in
 ```
 
-reShapr starts in the background about a minute after boot (log: `/tmp/reshapr-start.log` in the sandbox). The agent talks to it on `localhost:7777`.
+reShapr starts in the background about a minute after boot. Wait until `sbx exec reshapr-in tail -3 /tmp/reshapr-start.log` ends with an `Endpoints` line (the import is done), then start the agent. The agent talks to it on `localhost:7777`.
 
 **2b. Outside.** Clone this repo, then start reShapr on the host and register it with the sbx MCP gateway. Set the secret **first**; otherwise `sbx mcp add` fails with a misleading OAuth discovery error:
 
@@ -218,7 +218,7 @@ The host stack is reShapr's own (`reshapr run`), pinned with `RESHAPR_RELEASE` (
 - **Outside:** the host stack can go stale (expired CLI token, lost exposition): the gateway then lists only `code-mode` and `mcp-exec` and agents fall back to web search. `make verify` checks the host exposition first; if it fails, run `make down && make up`.
 - **Outside:** the sbx MCP gateway is host-side, so it reaches `localhost:7777` and adds the key; the sandbox never sees it. The agent sees `mcp-gateway`, which is why the agent-context note names the tools.
 - **Inside:** the gateway can't reach a sandbox's `localhost`, so the kit registers the server in each agent's own config (Claude `claude mcp add`, Codex `~/.codex/config.toml`, Copilot `~/.copilot/mcp-config.json`), with no key.
-- **Inside startup timing:** an agent session opened before the import finishes has no reShapr tools and may fall back to web search. Wait for `reshapr: … ✔ Connected` (`claude mcp list`) or the end of `/tmp/reshapr-start.log`, and start a new session if needed. Tested with a Claude subscription `/login` (no API-key secret): works.
+- **Inside startup timing:** an agent session opened before the import finishes has no reShapr tools and may fall back to web search. Wait for the import to finish: `sbx exec <sandbox> tail -3 /tmp/reshapr-start.log` should end with the `Endpoints` line (the agent can list `reshapr` as connected before that). Then start a new session if needed. Tested with a Claude subscription `/login` (no API-key secret): works.
 - **Inside needs `long-running@1`.** Without it the sandbox auto-stops with no client attached, and after a reboot the server can start before the control plane and never recover. The startup hook restarts `reshapr-gateway-01` when `:7777` is unhealthy.
 - **Inside startup:** each boot runs `reshapr run` and re-imports the API when the exposition is missing (Postgres is not persisted across stop/start). It takes about a minute and about 1 GB RAM. `registry.reshapr.io` redirects blobs to `cdn01.quay.io`, so that host must be allowed; it may change.
 - The kits are **schema v3**. A v3 mixin must be composed with a v3 *workload* (the published `docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`); the built-in names fail with "no workload kit in the set".
