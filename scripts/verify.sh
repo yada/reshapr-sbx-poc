@@ -19,6 +19,8 @@ esac
 
 if [ "$MODE" = outside ]; then
   [ -s "$STATE/api-key" ] || { echo "run scripts/up.sh first"; exit 1; }
+  say "0. The host reShapr server answers for the exposition (else run make down && make up)"
+  check bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -XPOST 'http://localhost:$PORT/mcp/$EXPOSITION' -H 'x-reshapr-key: $(cat "$STATE/api-key")' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"v\",\"version\":\"1\"}}}')\" = 200 ]"
   # The secret must exist BEFORE `sbx mcp add`, and before the sandbox is created.
   say "Registering the reShapr server with the sbx MCP gateway (key stays on the host)"
   "${SBX[@]}" secret rm mcp:reshapr:api-key --force >/dev/null 2>&1 || true
