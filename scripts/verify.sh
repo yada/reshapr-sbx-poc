@@ -1,47 +1,63 @@
 #!/usr/bin/env bash
-# Create a sandbox with the kit, store the API key, and prove the integration.
+# Create a sandbox with one of the two kits and prove the integration.
+#   MODE=outside (default): reShapr on the host, reached through the sbx MCP gateway (needs `make up`)
+#   MODE=inside           : reShapr in the sandbox itself (needs nothing on the host)
+#   AGENT=claude|codex|copilot (default claude)
 source "$(dirname "$0")/common.sh"
-[ -s "$STATE/api-key" ] || { echo "run scripts/up.sh first"; exit 1; }
+MODE="${MODE:-outside}"
 fail=0
 check() { if "$@"; then echo "  PASS"; else echo "  FAIL"; fail=1; fi; }
 
-# The credential mode (SBX_CRED_RESHAPR_MODE) is fixed at creation: store the key BEFORE creating the sandbox.
-"$(dirname "$0")/bind.sh" || exit 1
-
-say "Storing the API key on the host (never enters the sandbox)"
-"${SBX[@]}" secret rm reshapr --force >/dev/null 2>&1 || true
-"${SBX[@]}" secret set reshapr < "$STATE/api-key" 2>&1 | tail -1
-
-say "Creating sandbox '$SANDBOX' ($BASE + reshapr kit)"
-"${SBX[@]}" rm -f "$SANDBOX" >/dev/null 2>&1 || true
-"${SBX[@]}" create "$BASE" --name "$SANDBOX" --kit "$ROOT/reshapr" </dev/null 2>&1 | grep -E "Created|WARN|rror" || true
-
-say "1. The agent has the reshapr MCP server registered ($AGENT)"
-# claude reports a live connection; codex and copilot only list the registration
-# (a live connection would need an LLM login, so step 2 proves the reShapr server path instead).
 case "$AGENT" in
   claude)  list="claude mcp list";  ok='reshapr.*Connected' ;;
   codex)   list="codex mcp list";   ok='reshapr.*enabled' ;;
   copilot) list="copilot mcp list"; ok='reshapr' ;;
-  *) list=""; echo "  (no registration check for agent '$AGENT')" ;;
+  *) echo "unknown AGENT '$AGENT'"; exit 1 ;;
 esac
-if [ -n "$list" ]; then
+
+"${SBX[@]}" rm -f "$SANDBOX" >/dev/null 2>&1 || true
+
+if [ "$MODE" = outside ]; then
+  [ -s "$STATE/api-key" ] || { echo "run scripts/up.sh first"; exit 1; }
+  # The secret must exist BEFORE `sbx mcp add`, and before the sandbox is created.
+  say "Registering the reShapr server with the sbx MCP gateway (key stays on the host)"
+  "${SBX[@]}" secret rm mcp:reshapr:api-key --force >/dev/null 2>&1 || true
+  "${SBX[@]}" secret set mcp:reshapr:api-key < "$STATE/api-key" 2>&1 | tail -1
+  "${SBX[@]}" mcp rm reshapr --force >/dev/null 2>&1 || true
+  "${SBX[@]}" mcp add reshapr --url "http://localhost:$PORT/mcp/$EXPOSITION" \
+    --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check 2>&1 | tail -1
+  check bash -c "${SBX[*]} mcp ls | grep -q 'reshapr.*ready'"
+
+  say "Creating sandbox '$SANDBOX' ($BASE + reshapr-outside-sbx kit, --static-mcp reshapr)"
+  "${SBX[@]}" create "$BASE" --name "$SANDBOX" --kit "$ROOT/sbx-kits/reshapr-outside-sbx" --static-mcp reshapr </dev/null 2>&1 | grep -E "Created|WARN|rror" || true
+
+  say "1. The agent has the mcp-gateway registered ($AGENT)"
+  case "$AGENT" in claude) ok='mcp-gateway.*Connected' ;; codex) ok='mcp-gateway.*enabled' ;; copilot) ok='mcp-gateway' ;; esac
+  "${SBX[@]}" exec "$SANDBOX" $list 2>&1 | grep gateway || true
+  check bash -c "${SBX[*]} exec '$SANDBOX' $list 2>&1 | grep -q '$ok'"
+
+  say "2. The kit's agent context is installed"
+  check bash -c "${SBX[*]} exec '$SANDBOX' sh -c 'grep -rl \"mcp-gateway\" ~/.claude ~/.codex ~/.copilot /home/agent 2>/dev/null | grep -qi reshapr-outside-sbx'"
+
+  say "3. The API key is not in the sandbox"
+  key="$(cat "$STATE/api-key")"
+  check bash -c "! ${SBX[*]} exec '$SANDBOX' sh -c 'grep -rqF \"$key\" /home/agent /etc /tmp 2>/dev/null'"
+else
+  say "Creating sandbox '$SANDBOX' ($BASE + reshapr-inside-sbx kit)"
+  "${SBX[@]}" create "$BASE" --name "$SANDBOX" --kit "$ROOT/sbx-kits/reshapr-inside-sbx" </dev/null 2>&1 | grep -E "Created|WARN|rror" || true
+
+  say "1. reShapr starts and the API is imported (up to 3 minutes)"
+  check bash -c "for _ in \$(seq 90); do [ \"\$(${SBX[*]} exec '$SANDBOX' curl -s -o /dev/null -w '%{http_code}' -XPOST 'http://localhost:7777/mcp/$EXPOSITION' -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"v\",\"version\":\"1\"}}}' 2>/dev/null)\" = 200 ] && exit 0; sleep 2; done; exit 1"
+
+  say "2. The agent has the reshapr MCP server registered ($AGENT)"
   "${SBX[@]}" exec "$SANDBOX" $list 2>&1 | grep reshapr || true
   check bash -c "${SBX[*]} exec '$SANDBOX' $list 2>&1 | grep -q '$ok'"
+
+  say "3. MCP round trip from inside the sandbox"
+  check bash -c "${SBX[*]} exec -i '$SANDBOX' bash -s -- 'http://localhost:7777/mcp/$EXPOSITION' < '$ROOT/scripts/mcp-smoke.sh'"
 fi
 
-say "2. MCP round trip from inside the sandbox (key injected by the proxy)"
-check bash -c "${SBX[*]} exec -i '$SANDBOX' bash -s < '$ROOT/scripts/mcp-smoke.sh'"
-
-say "3. Without the key the reShapr server refuses (401)"
-curl -s -o /dev/null -w "  reShapr server status without key (from the host): %{http_code}\n" -m 15 -XPOST "http://localhost:$PORT/mcp/$EXPOSITION" -H "Content-Type: application/json" -d "{}"
-
-say "4. The backend API is only reachable through the reShapr server"
-"${SBX[@]}" exec "$SANDBOX" sh -c \
-  'curl -s -o /dev/null -w "  direct https://api.open-meteo.com: %{http_code}\n" -m 8 https://api.open-meteo.com/ || true'
-echo "  (403 under deny-all; with a permissive daemon policy this line is informational)"
-
 say "Network log for this sandbox"
-"${SBX[@]}" policy log "$SANDBOX" 2>&1 | grep -E "localhost:7777|open-meteo" || true
+"${SBX[@]}" policy log "$SANDBOX" 2>&1 | grep -E "reshapr|quay|open-meteo|mcp-gateway" | head -10 || true
 
 [ "$fail" = 0 ] && say "ALL CHECKS PASSED" || { say "SOME CHECKS FAILED"; exit 1; }

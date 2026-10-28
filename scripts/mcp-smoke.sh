@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Runs INSIDE the sandbox (piped by verify.sh). Plain MCP over HTTP, no agent needed.
+# Runs INSIDE the sandbox (piped by verify.sh) for the inside kit. Plain MCP over HTTP, no agent needed.
 set -u
-PORT="${RESHAPR_PORT:?RESHAPR_PORT not set; is the kit applied?}"
-EXPO="${RESHAPR_EXPOSITION:?RESHAPR_EXPOSITION not set; is the kit applied?}"
-URL="http://host.docker.internal:${PORT}/mcp/${EXPO}"
-H=(-H "x-reshapr-key: ${RESHAPR_API_KEY:-}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
-
-echo "key seen by the sandbox : ${RESHAPR_API_KEY:-<unset>}   (placeholder expected)"
+URL="${1:?usage: mcp-smoke.sh <mcp-url>}"
+H=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
 
 init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"poc","version":"1"}}}'
 resp="$(curl -s -i -m 15 -XPOST "$URL" "${H[@]}" -d "$init" | tr -d '\r')"
