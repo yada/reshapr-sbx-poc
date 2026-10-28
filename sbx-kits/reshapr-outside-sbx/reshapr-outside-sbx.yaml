@@ -1,0 +1,24 @@
+# syntax=docker/sandbox-kit:3
+# Mixin kit: tell the agent how to use a reShapr server exposed through the sbx MCP gateway.
+# The registration is done on the host (see ../../README.md): `sbx mcp add` and `sbx create --static-mcp`.
+schemaVersion: "3"
+kind: mixin
+version: "0.3.0"
+sourceUrl: https://github.com/yada/reshapr-sbx-poc
+displayName: reShapr (outside sbx, via the MCP gateway)
+description: Agent context for a reShapr MCP server running on the host and exposed through the sbx MCP gateway. The API key stays on the host.
+licenses:
+  - Apache-2.0
+
+capabilities:
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      content: |
+        ## reShapr MCP tools
+
+        A reShapr server is exposed through the `mcp-gateway` MCP server, so its
+        tools appear unprefixed (for example `get_v1_forecast`) next to `code-mode`
+        and `mcp-exec`. There is no MCP server named `reshapr`: call the tools directly.
+        Use them instead of web search or direct API calls (direct egress to the
+        backend APIs is blocked). Responses are already trimmed by reShapr, so
+        prefer the tool output over re-fetching.

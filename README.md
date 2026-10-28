@@ -1,52 +1,68 @@
 # reshapr-sbx-poc
 
-Proof of concept: a **Docker Sandboxes (sbx) kit** that gives a sandboxed coding agent governed access to your APIs through a **[reShapr](https://github.com/reshaprio/reshapr) MCP server**.
+Proof of concept: two **Docker Sandboxes (sbx) kits** that give a sandboxed coding agent governed access to your APIs through a **[reShapr](https://github.com/reshaprio/reshapr) MCP server**.
 
 - **sbx** isolates the agent (VM, deny-by-default network, credentials kept on the host).
 - **reShapr** turns REST/GraphQL/gRPC APIs into MCP tools, with API-key auth, audit and trimmed responses.
-- **The kit** wires the two: it registers the exposition with the agent and lets the sbx proxy inject the reShapr API key, so the key never enters the sandbox.
+
+| Kit | reShapr runs | Image |
+|---|---|---|
+| **reshapr-outside-sbx** | on your host, reached through the sbx MCP gateway (the API key stays on the host) | `docker.io/yadayac/reshapr-outside-sbx:0.3.0` |
+| **reshapr-inside-sbx** | inside the sandbox, in its own Docker daemon (nothing on the host) | `docker.io/yadayac/reshapr-inside-sbx:0.3.0` |
 
 ```
- ┌──────────── sbx sandbox ─────────────┐        ┌────────────── host ───────────────┐
- │ agent (Claude, Codex, Copilot)       │        │ reShapr server :7777 ──► backend  │
- │  MCP: x-reshapr-key: proxy-managed ──┼─ sbx ──┼─► (checks key, audits, trims)     │
- │  direct backend access: BLOCKED      │ proxy  │ reShapr control plane :5555 + PG  │
- └──────────────────────────────────────┘ injects└───────────────────────────────────┘
-                                          real key
+ OUTSIDE                                                 INSIDE
+ ┌─ sbx sandbox ─┐        ┌──────── host ────────┐       ┌────────── sbx sandbox ──────────┐
+ │ agent         │  sbx   │ reShapr :7777 ─► API │       │ agent ─► reShapr :7777 ─► API   │
+ │  mcp-gateway ─┼─ MCP ──┼─► key added by sbx   │       │          (compose, own daemon)  │
+ └───────────────┘ gateway└──────────────────────┘       └─────────────────────────────────┘
 ```
 
 Demo backend: the public [Open-Meteo](https://open-meteo.com) weather API (no account needed).
 
+Both kits are published as multi-arch OCI images with provenance, and signed (keyless Sigstore). Verify with:
+
+```bash
+sbx kit verify docker.io/yadayac/reshapr-outside-sbx:0.3.0 \
+  --certificate-identity yacine@microcks.io \
+  --certificate-oidc-issuer https://github.com/login/oauth
+```
+
+## Which one?
+
+| | Outside | Inside | Plain gateway (no kit) |
+|---|---|---|---|
+| reShapr runs | on the host | in the sandbox | on the host |
+| Host steps | `make up`, secret, `sbx mcp add` | none | `make up`, secret, `sbx mcp add` |
+| API key | stays on the host | none (no key) | stays on the host |
+| Tool name the agent sees | `get_v1_forecast` via `mcp-gateway` | `reshapr` server, `get_v1_forecast` | same as outside |
+| Agent knows about reShapr | yes (agent-context) | yes (agent-context) | no |
+| Startup | instant | about 1 minute per boot | instant |
+| Extra egress to allow | none | registry.reshapr.io, quay.io, cdn01.quay.io, raw.githubusercontent.com, api.open-meteo.com (set in the kit) | none |
+| Memory | host | about 1 GB in the sandbox | host |
+
+Use **inside** for an isolated, ready-made environment with a single `sbx create`. Use **outside** to share one reShapr server (and its audit) across sandboxes and keep the key on the host.
+
 ## Prerequisites
 
-Docker (Compose v2), `sbx` 0.48.0 or later, signed in (`sbx login`), `curl`, and the reShapr CLI (Node 22+):
-`npm install -g @reshapr/reshapr-cli --allow-scripts=@scarf/scarf` ([docs](https://reshapr.io/docs/tutorials/getting-started)).
-The global install is optional: if `reshapr` is not on your PATH, the scripts run the same CLI on demand with `npx @reshapr/reshapr-cli@<release>` (pinned to `RESHAPR_RELEASE`). That path needs Node 22+ and is slower on the first run because the CLI is downloaded.
+`sbx` 0.50.0 or later (tested on 0.49.2 and 0.50.0), signed in (`sbx login`), and `curl`. For **outside** only: Docker (Compose v2), and the reShapr CLI (Node 22+): `npm install -g @reshapr/reshapr-cli --allow-scripts=@scarf/scarf` ([docs](https://reshapr.io/docs/tutorials/getting-started)). If `reshapr` is not on your PATH, the scripts run it with `npx @reshapr/reshapr-cli@<release>` (slower on the first run).
 
-Free ports 5555 and 7777 (3333 with `UI=1`).
+Outside mode needs free ports 5555 and 7777 on the host (3333 with `UI=1`).
 
 ## Quick start
 
-Pick an agent, then follow path A (the kit) or path B (the sbx MCP gateway). Run every step in the same terminal, because step 2 sets `BASE` for the later commands.
+Pick an agent, then one mode. Run every step in the same terminal, because the agent block sets `BASE`.
 
-**1. Start reShapr** (clone this repo first). `make up` starts reShapr with Open-Meteo and an API key, and `bind.sh` lets the sbx proxy use the `reshapr` secret:
+**1. Pick your agent** and copy **one** block. Each block stores the agent's own credential and sets `BASE`.
 
-```bash
-make up
-./scripts/bind.sh
-sbx secret set reshapr < .state/api-key
-```
-
-**2. Pick your agent** and copy **one** block. Each block stores the agent's own credential and sets `BASE`.
-
-*Claude* (tested live on both paths). Paste your Anthropic key when asked; create it in a dedicated Anthropic Console workspace, not at org level:
+*Claude* (tested live). Paste your Anthropic key when asked; create it in a dedicated Anthropic Console workspace, not at org level:
 
 ```bash
 sbx secret set anthropic
 export BASE=docker.io/docker/sbx-kit-claude:2.1.296
 ```
 
-*Copilot* (tested live on both paths). This reads your `gh` login (run `gh auth login` first). See [Copilot needs two secrets](#copilot-needs-two-secrets) for the token-scope warning:
+*Copilot* (tested live). This reads your `gh` login (run `gh auth login` first). See [Copilot needs two secrets](#copilot-needs-two-secrets):
 
 ```bash
 sbx secret set github  --command "$(which gh) auth token"
@@ -54,249 +70,171 @@ sbx secret set copilot --command "$(which gh) auth token"
 export BASE=docker.io/docker/sbx-kit-copilot:1.0.86
 ```
 
-*Codex* (tested live on the kit and the gateway; ask "…using the reshapr tool", because Codex otherwise prefers its built-in web search). Paste your OpenAI key when asked:
+*Codex* (tested live; ask "…using the reshapr tool", because Codex otherwise prefers its built-in web search, even with the kit's agent-context note). Paste your OpenAI key when asked:
 
 ```bash
 sbx secret set openai
 export BASE=docker.io/docker/sbx-kit-codex:0.162.1
 ```
 
-**3a. Path A, the kit.** Expect the install commands to pass:
+**2a. Inside** (nothing to start on the host):
 
 ```bash
-sbx create "$BASE" --name reshapr-sbx --kit docker.io/yadayac/reshapr-kit:0.2.0
-sbx run reshapr-sbx
+sbx create "$BASE" --name reshapr-in --kit docker.io/yadayac/reshapr-inside-sbx:0.3.0
+sbx run reshapr-in
 ```
 
-**3b. Path B, the gateway** (no kit). Set the secret first. Expect `reshapr  ready` in `sbx mcp ls`:
+reShapr starts in the background about a minute after boot. Wait until `sbx exec reshapr-in tail -3 /tmp/reshapr-start.log` ends with an `Endpoints` line (the import is done), then start the agent. The agent talks to it on `localhost:7777`.
+
+**2b. Outside.** Clone this repo, then start reShapr on the host and register it with the sbx MCP gateway. Set the secret **first**; otherwise `sbx mcp add` fails with a misleading OAuth discovery error:
 
 ```bash
+make up
 sbx secret set mcp:reshapr:api-key < .state/api-key
 sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default \
   --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check
-sbx mcp ls
-sbx create "$BASE" --name reshapr-gw --static-mcp reshapr
-sbx run reshapr-gw
+sbx mcp ls                                   # expect: reshapr  ready
+sbx create "$BASE" --name reshapr-out --static-mcp reshapr \
+  --kit docker.io/yadayac/reshapr-outside-sbx:0.3.0
+sbx run reshapr-out
 ```
 
-**4. Ask:** *"give the forecast in SFO"*. Path A calls `reshapr-get_v1_forecast` through the `reshapr` server; path B calls `get_v1_forecast` through `mcp-gateway`. The first call may time out; the agent retries.
-
-**Which path?** Path A is one `--kit` flag and tells the agent about reShapr. Path B keeps the key out of the sandbox entirely, but the agent can't address `reshapr` by name. Details are [below](#alternative-the-sbx-mcp-gateway-no-kit).
+**3. Ask:** *"give the forecast in SFO"*. The first call may time out (3 s backend timeout); the agent retries. In outside mode the agent sees one `mcp-gateway` with an unprefixed `get_v1_forecast` (plus `code-mode` and `mcp-exec`), not a server called `reshapr`. The kit's agent-context note tells it so.
 
 **Clean up:**
 
 ```bash
-sbx rm -f reshapr-sbx reshapr-gw
+sbx rm -f reshapr-in reshapr-out
 sbx mcp rm --force reshapr
 sbx secret rm --force mcp:reshapr:api-key
 sbx secret rm --force mcp:reshapr:api-key:endpoint
 make down
 ```
 
-Your agent's own secret (`anthropic`, `github` and `copilot`, or `openai`) stays stored; remove it with `sbx secret rm --force <name>` if you don't want to keep it.
+Your agent's own secret (`anthropic`, `github` and `copilot`, or `openai`) stays stored; remove it with `sbx secret rm --force <name>`.
 
-## Run it
+## Run the checks
 
 ```bash
-make up       # start reShapr, import Open-Meteo as an MCP server (API key + audit on)
-              # make up UI=1 also starts the web UI on http://localhost:3333 (admin / password)
-make verify   # create the sandbox with the kit and run the checks
-make down     # remove everything (sandbox, secret, containers, volumes, state)
+make up                                  # outside only: reShapr on the host + API key
+MODE=outside AGENT=claude make verify    # MODE=outside|inside, AGENT=claude|codex|copilot
+make down                                # remove sandbox, gateway registration, secrets, stack, state
+make validate                            # sbx kit inspect on both kits
 ```
 
-`make verify` proves four things:
+`make verify` needs **no agent or model login**; it uses `sbx exec` and `curl`. Outside proves: the agent registers `mcp-gateway`, the kit's agent-context is installed, and the API key is not in the sandbox. Inside proves: reShapr starts and imports the API, the agent has `reshapr` registered, and an MCP `initialize` → `tools/list` → `tools/call get_v1_forecast` round trip works.
 
-1. The agent has `reshapr` registered (for Claude Code, `claude mcp list` shows **Connected**).
-2. From inside the sandbox, `initialize` → `tools/list` → `tools/call get_v1_forecast` succeed, and `$RESHAPR_API_KEY` is only the placeholder `proxy-managed`.
-3. The reShapr server returns **401** without a key.
-4. The backend is not reachable directly from the sandbox (403 under a deny-all policy).
-
-Agents (`AGENT=claude|codex|copilot make verify`, default `claude`):
-
-| Agent | Registration | Verified |
-|---|---|---|
-| Claude Code | `claude mcp add` | Connected (live) + MCP round trip |
-| Codex | `~/.codex/config.toml` (`http_headers`) | `codex mcp list` enabled + MCP round trip |
-| Copilot CLI | `~/.copilot/mcp-config.json` (jq merge) | `copilot mcp list` + MCP round trip |
-
-For Codex a live prompt was tested with an OpenAI API key: it called `reshapr.get_v1_forecast` when the prompt said "using the reshapr tool"; without that hint it used web search. For Copilot a live prompt was tested: it found and called `get_v1_forecast`.
-
-`make verify` needs **no agent or model login**: it only uses `sbx exec` and `curl` inside the sandbox. Only a live prompt needs the agent's own credential.
+Results: all 6 combinations (3 agents × 2 modes) pass on sbx 0.49.2 and 0.50.0; the kit TCK passes 19/19 on both published images. Live prompts were run for Claude, Codex and Copilot on both modes.
 
 ### Try it without an agent login
 
 ```bash
-sbx exec reshapr-sbx bash -s < scripts/mcp-smoke.sh   # MCP round trip, key injected by the proxy
-sbx exec -it reshapr-sbx bash                         # shell; try curl against http://host.docker.internal:$RESHAPR_PORT/mcp/$RESHAPR_EXPOSITION
-sbx exec reshapr-sbx copilot mcp list                 # registration (or claude / codex)
+sbx exec reshapr-in bash -s -- http://localhost:7777/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default < scripts/mcp-smoke.sh
+sbx exec reshapr-in copilot mcp list        # or claude / codex
 ```
 
 ### Try it with a live prompt
 
-The agent needs its own credential. Store it on the host **before** the sandbox is created (the mode is fixed at creation):
+The agent needs its own credential, stored on the host **before** the sandbox is created:
 
 | Agent | `sbx secret set …` | What to paste |
 |---|---|---|
-| claude | `anthropic` | Console API key or Claude subscription login (optional: `/login` also works inside the sandbox). Create the key in a dedicated Anthropic Console workspace with its own spend limit, not at org level |
+| claude | `anthropic` | Console API key or Claude subscription login. Create the key in a dedicated workspace with its own spend limit |
 | codex | `openai` | OpenAI API key or ChatGPT login |
-| copilot | **both** `github` and `copilot` | Your `gh auth token` output for each (pasted or via Option B below, both tested), or a fine-grained PAT with the *Copilot Requests* permission. See "Copilot needs two secrets" below |
+| copilot | **both** `github` and `copilot` | `gh auth token` output (or a fine-grained PAT with *Copilot Requests*) |
 
-```bash
-# Option A: paste a token when prompted
-sbx secret set <service>        # from the table above, e.g. anthropic or openai
-
-# Option B (Copilot): sbx reads the token from your gh login on the host
-sbx secret set github  --command "$(which gh) auth token"
-sbx secret set copilot --command "$(which gh) auth token"
-
-make down && make up            # recreate, so the credential applies
-AGENT=<agent> make verify       # creates the sandbox, e.g. AGENT=copilot
-sbx run reshapr-sbx             # start the agent
-```
-
-> **Warning:** `gh auth token` returns your `gh` login token, which has broad scopes (for example `repo`, `workflow`, `read:org`). The sbx proxy injects it only on the Copilot domains and it never enters the sandbox, but a fine-grained PAT limited to *Copilot Requests* is the least-privilege choice.
-
-Then ask *"What's the weather forecast for Paris? Use the reshapr tools."* The first call to the backend may time out (3 s backend timeout); the agent usually retries with a smaller request.
+> **Warning:** `gh auth token` returns your `gh` login token, which has broad scopes. The sbx proxy injects it only on the Copilot domains and it never enters the sandbox, but a fine-grained PAT limited to *Copilot Requests* is the least-privilege choice.
 
 #### Copilot needs two secrets
-
-The Copilot kit declares two credential services, and both must be set before the sandbox is created:
 
 | Service | Injected on | Used for |
 |---|---|---|
 | `github` | `api.github.com`, `github.com` | Copilot validates its token here at startup |
 | `copilot` | `*.githubcopilot.com`, `copilot.github.com` | Model calls |
 
-Both can hold the same value (`gh auth token`, or a fine-grained PAT with *Copilot Requests*). Steps:
-
-```bash
-sbx secret set github  --command "$(which gh) auth token"
-sbx secret set copilot --command "$(which gh) auth token"
-sbx secret ls                   # check both are listed
-make down && make up && AGENT=copilot make verify
-sbx run reshapr-sbx
-```
-
 Symptoms (observed): without `github`, Copilot starts with `Authentication token found but could not be validated. GitHub returned: Bad credentials`; with `github` but without `copilot`, the model catalog returns 401.
 
-A third cause (observed on sbx 0.48.0): if you removed the `github` secret while a sandbox of that name existed, sbx logs `secrets: credential revoked` for it, and the revoked state sticks to the sandbox **name**. Re-creating a sandbox with the same name keeps failing with "Bad credentials" even with the secret set again; a different name works. Use another name with `SANDBOX=<name> make verify` or `sbx create --name <name>`.
+A third cause (observed on sbx 0.48.0, not reproduced on 0.50.0): if you removed the `github` secret while a sandbox of that name existed, sbx logs `secrets: credential revoked` and the revoked state sticks to the sandbox **name**. Use another name (`SANDBOX=<name> make verify`, or `sbx create --name <name>`). the `github` secret while a sandbox of that name existed, sbx logs `secrets: credential revoked` and the revoked state sticks to the sandbox **name**. Use another name (`SANDBOX=<name> make verify`, or `sbx create --name <name>`).
 
-### Use your own API
+## Use your own API
 
-`make up` only imports the demo API. To expose another one, import it into reShapr and point the kit at it:
+**Inside:** pass kit args (see `sbx create --help`). Add the hosts of your OpenAPI document and backend to the sandbox allow list (`sbx policy allow network <host>`):
 
 ```bash
-reshapr import -u <openapi-url> --backendEndpoint <api-base-url> --apiKey --audit   # prints the API key once
-reshapr expo list                                                                  # find <org>/<exposition-name>
-sbx secret rm reshapr --force; sbx secret set reshapr                              # paste the key
-sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit ./reshapr --kit-arg exposition=<org>/<exposition-name>   # see `sbx create --help`
+sbx create "$BASE" --kit docker.io/yadayac/reshapr-inside-sbx:0.3.0 \
+  --kit-arg openapi=<openapi-url> --kit-arg backend=<api-base-url> \
+  --kit-arg exposition=<org>/<exposition-name>
 ```
 
-(The `reshapr` CLI here is the one from `make up`: it keeps its session in `.state/home`, so run it with `HOME=$PWD/.state/home`.)
+Args: `release` (default `1.0.0`), `openapi`, `backend`, `exposition`. The exposition path comes from the API's title and version, so the first run tells you the right value: `sbx exec <sandbox> reshapr expo list` (put `~/.npm-g/bin` on PATH), then recreate with `--kit-arg exposition=…`. Tested with the Petstore API (`openapi=https://petstore3.swagger.io/api/v3/openapi.json`, `backend=https://petstore3.swagger.io/api/v3`, exposition `reshapr/swagger-petstore-openapi-3-0-1-0-28-default`, plus `sbx policy allow network petstore3.swagger.io`): Claude called `get_pet_findbystatus` through the `reshapr` server.
 
-### Use the published kit
+**Outside:** import the API into reShapr on the host (`reshapr import -u <openapi-url> --backendEndpoint <api-base-url> --apiKey --audit`, which prints the key once; `reshapr expo list` for the path), then use that key and URL in the `sbx secret set` and `sbx mcp add` steps. The CLI here keeps its session in `.state/home`, so run it with `HOME=$PWD/.state/home`.
 
-The kit is published on Docker Hub as `docker.io/yadayac/reshapr-kit:0.2.0`, so you can use it without cloning the repo. You still need a reShapr server running on the host and the `reshapr` secret set before `sbx create` (`make up` does both for the demo):
+## Migrating from 0.2.0
 
-| Agent | Workload (`BASE`) | Extra secrets |
-|---|---|---|
-| Claude | `docker.io/docker/sbx-kit-claude:2.1.296` | none |
-| Codex | `docker.io/docker/sbx-kit-codex:0.162.1` | none |
-| Copilot | `docker.io/docker/sbx-kit-copilot:1.0.86` | `github` and `copilot` (see [Copilot needs two secrets](#copilot-needs-two-secrets)) |
+`docker.io/yadayac/reshapr-kit:0.2.0` (tag `v0.2.0`) stays published. 0.3.0 is a breaking change:
 
-```bash
-BASE=docker.io/docker/sbx-kit-claude:2.1.296   # pick a workload from the table
-sbx create "$BASE" --name reshapr-sbx --kit docker.io/yadayac/reshapr-kit:0.2.0
-```
+- The old kit's per-agent hooks, `reshapr` credential, network rule and `scripts/bind.sh` are gone. Registration now goes through the sbx MCP gateway (outside) or runs in the sandbox (inside).
+- The kit moved to `reshapr-outside-sbx` (agent-context only). Outside mode now needs `sbx secret set mcp:reshapr:api-key`, `sbx mcp add … --skip-ssrf-check` and `--static-mcp reshapr`.
+- The tool is `get_v1_forecast` behind `mcp-gateway`, not `reshapr-get_v1_forecast`.
 
-Versions: release `v0.2.0` is the current spec v3 kit; `v0.1.0-v2` is the legacy spec v2 kit.
+## Publish and sign your own copy
 
-### Alternative: the sbx MCP gateway (no kit)
-
-sbx also has a [host-managed MCP gateway](https://docs.docker.com/ai/sandboxes/mcp-gateway/). You register the reShapr exposition once on the host, and every sandbox gets it through one gateway endpoint. Set the secret **first**; otherwise the add fails with a misleading OAuth discovery error:
+A v3 kit is an OCI image. Build with buildx and a **`docker-container` builder** (Docker Desktop's default builder pushes a plain image that sbx rejects with "no artifactType"):
 
 ```bash
-sbx secret set mcp:reshapr:api-key < .state/api-key
-sbx mcp add reshapr --url http://localhost:7777/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default \
-  --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check
-sbx create "$BASE" --name reshapr-gw --static-mcp reshapr   # no --kit
-```
-
-Tested on sbx 0.48.0: Claude, Codex and Copilot each register `mcp-gateway` by itself, and a `get_v1_forecast` call returned real data. All three were also tested with a live prompt (macOS; Claude and Codex with an API key, Copilot with `gh auth token`). Codex needs "using the reshapr tool" in the prompt, otherwise it uses web search. The key stays on the host (no placeholder, no `RESHAPR_API_KEY` in the sandbox) and no allow rule is needed.
-
-Differences from the kit:
-
-- The tool is named `get_v1_forecast` (not `reshapr-get_v1_forecast`), and the gateway adds `code-mode` and `mcp-exec`.
-- It is host state, not an artifact: nothing to distribute, and no agent-context text.
-- The agent sees one `mcp-gateway`, not a server called `reshapr`, so "use the reshapr tool" fails. Name the tool, or add a line to your project instructions.
-- After rotating the secret, restart the sandbox.
-- Copilot is not on the docs' list of supported agents, but it works: a live prompt called `get_v1_forecast` through `mcp-gateway`, including an hourly follow-up.
-
-Use the kit for a single `--kit` command and the agent-context text; use the gateway if you prefer to keep the key out of the sandbox entirely.
-
-### Publish the kit (optional)
-
-`docker.io/yadayac/reshapr-kit:0.2.0` is already published; this section is for publishing your own copy. A v3 kit is an OCI image, so others can use it without cloning the repo. `sbx kit push` is v1/v2 only on sbx 0.48.0; publish with buildx and a **`docker-container` builder** (Docker Desktop's default builder pushes a plain image that sbx rejects with "no artifactType"):
-
-```bash
-REF=docker.io/<your-namespace>/reshapr-kit:0.2.0
 docker buildx create --name kitpub --driver docker-container
-docker buildx build ./reshapr -f ./reshapr/reshapr.yaml -t "$REF" --builder kitpub --push
-
-# consume it, no local build:
-sbx create docker.io/docker/sbx-kit-claude:2.1.296 --kit "$REF"
+K=reshapr-outside-sbx                       # or reshapr-inside-sbx
+docker buildx build ./sbx-kits/$K -f ./sbx-kits/$K/$K.yaml \
+  --platform linux/amd64,linux/arm64 --provenance=true --sbom=false \
+  -t docker.io/<namespace>/$K:0.3.0 --builder kitpub --push
+sbx kit sign docker.io/<namespace>/$K:0.3.0      # keyless; opens a browser login
 ```
 
-(The kit's name comes from the repository name, so `reshapr-kit` above.)
+The kit's name comes from the repository name.
 
-### Use the MCP server from a host client (MCPJam, Inspector, …)
+## MCP server from a host client (MCPJam, Inspector, …)
 
-The same server can be queried outside sbx. Auth is an API key in a custom header, not a bearer token:
+In outside mode the same server can be queried from the host. Auth is an API key in a custom header, not a bearer token:
 
-- URL: `http://localhost:7777/mcp/<org>/<exposition-name>` (the demo one is `/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default`)
-- Header: `x-reshapr-key: <key>`, with the key from `.state/api-key` (while `make up` is running)
-- In [MCPJam](https://github.com/MCPJam/inspector), the Bearer Token and OAuth options don't apply. Set authentication to none and add the header under "Edit server details".
-
-### Isolated sbx daemon (experimental)
-
-`sbx --app-name reshapr-sbx login`, `sbx --app-name reshapr-sbx policy init deny-all`, then `SBX_APP=reshapr-sbx make verify`. It needs an interactive login and was not reliable in my tests; the default daemon is the tested path.
+- URL: `http://localhost:7777/mcp/<org>/<exposition-name>`
+- Header: `x-reshapr-key: <key>` (from `.state/api-key` while `make up` is running)
+- In [MCPJam](https://github.com/MCPJam/inspector), set authentication to none and add the header under "Edit server details".
 
 ## What's in the repo
 
 | Path | Purpose |
 |---|---|
-| `reshapr/reshapr.yaml` | The kit (v3 mixin): args, credential, network allow, MCP registration, agent instructions |
-| `scripts/up.sh` | `reshapr run -r <release> [--ui]` (reShapr's official all-in-one stack), CLI login, API import, saves the key to `.state/api-key` |
-| `scripts/bind.sh` | Creates the user-side sbx credential binding (only if absent) |
-| `scripts/verify.sh`, `mcp-smoke.sh` | Sandbox creation and checks |
+| `sbx-kits/reshapr-outside-sbx/reshapr-outside-sbx.yaml` | Outside kit (v3 mixin): agent-context only |
+| `sbx-kits/reshapr-inside-sbx/reshapr-inside-sbx.yaml` | Inside kit (v3 mixin): args, network allow list, `long-running`, install and startup hooks, agent-context |
+| `scripts/up.sh` | `reshapr run -r <release>` on the host (outside), CLI login, API import, key saved to `.state/api-key` |
+| `scripts/verify.sh`, `mcp-smoke.sh` | Sandbox creation and checks (`MODE`, `AGENT`) |
 | `scripts/down.sh` | Cleanup |
 
-The stack is reShapr's own (`reshapr run`), pinned with `RESHAPR_RELEASE` (default `1.0.0`). The CLI runs with `HOME=.state/home`, so your real `~/.reshapr` session and data are untouched; `make down` runs `reshapr stop` and deletes `.state`.
-
-Kit args: `port` (default `7777`) and `exposition` (`<org>/<exposition-name>`, see `reshapr expo list`).
+The host stack is reShapr's own (`reshapr run`), pinned with `RESHAPR_RELEASE` (default `1.0.0`). The CLI runs with `HOME=.state/home`, so your real `~/.reshapr` is untouched.
 
 ## How it works, and the gotchas
 
-- Inside the sandbox, `localhost` is the sandbox itself, so clients (each agent's MCP config, and `scripts/mcp-smoke.sh`) use `host.docker.internal:7777` to reach the host. The sbx proxy also handles host traffic and rewrites `host.docker.internal` to **`localhost`**. So the allow rule (`localhost:7777`) and the credential `inject.domain` (`localhost`) must both use `localhost`.
-- The kit is **schema v3** (`reshapr/reshapr.yaml`; the v2 version is tagged `v0.1.0-v2`). A v3 mixin must be composed with a v3 *workload*: the built-in names `claude` and `codex` failed with "no workload kit in the set", so `make verify` uses the published workloads (`docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`).
-- v3 source kits are built, not just parsed. On Docker Desktop's classic image store the host build fails ("OCI exporter is not supported for the docker driver"), so the scripts set `SBX_KIT_BUILDER=sandbox` to build in sbx's builder sandbox. `sbx kit validate` doesn't accept v3 source kits; `make validate` runs `sbx kit inspect` instead.
-- A v3 mixin can't set an environment variable without an image recipe, so the v2 `RESHAPR_MCP_URL` is gone. The args are exported as `RESHAPR_PORT` and `RESHAPR_EXPOSITION` instead.
-- sbx injects a credential only into domains the **user** allows. `scripts/bind.sh` creates `~/.config/sbx/credentials.yaml` (`reshapr` → `localhost`) if that file doesn't exist; `make down` removes it if the POC created it. Otherwise you get `credential not sent: no binding authorizes this service`.
-- Store the key with `sbx secret set reshapr` (global) **before** creating the sandbox: `SBX_CRED_RESHAPR_MODE` is fixed at creation. Rotate with `sbx secret rm reshapr --force` then `set`.
-- Do not copy the grafana kit's `NO_PROXY` override: it bypasses the proxy and the injection.
-- `claude mcp add` is not idempotent, hence `|| true` in the install step.
-- The first forecast call can hit reShapr's 3 s backend timeout (`Backend timed out after 3000ms`); `make verify` retries it up to 3 times.
-- Live prompts need the agent's own credential, set before creating the sandbox (see the table under "Try it with a live prompt"). Copilot needs both `github` and `copilot`; "Bad credentials" means `github` is missing. Set it, then recreate the sandbox.
+- **Outside:** the host stack can go stale (expired CLI token, lost exposition): the gateway then lists only `code-mode` and `mcp-exec` and agents fall back to web search. `make verify` checks the host exposition first; if it fails, run `make down && make up`.
+- **Outside:** the sbx MCP gateway is host-side, so it reaches `localhost:7777` and adds the key; the sandbox never sees it. The agent sees `mcp-gateway`, which is why the agent-context note names the tools.
+- **Inside:** the gateway can't reach a sandbox's `localhost`, so the kit registers the server in each agent's own config (Claude `claude mcp add`, Codex `~/.codex/config.toml`, Copilot `~/.copilot/mcp-config.json`), with no key.
+- **Inside startup timing:** an agent session opened before the import finishes has no reShapr tools and may fall back to web search. Wait for the import to finish: `sbx exec <sandbox> tail -3 /tmp/reshapr-start.log` should end with the `Endpoints` line (the agent can list `reshapr` as connected before that). Then start a new session if needed. Tested with a Claude subscription `/login` (no API-key secret): works.
+- **Inside needs `long-running@1`.** Without it the sandbox auto-stops with no client attached, and after a reboot the server can start before the control plane and never recover. The startup hook restarts `reshapr-gateway-01` when `:7777` is unhealthy.
+- **Inside startup:** each boot runs `reshapr run` and re-imports the API when the exposition is missing (Postgres is not persisted across stop/start). It takes about a minute and about 1 GB RAM. `registry.reshapr.io` redirects blobs to `cdn01.quay.io`, so that host must be allowed; it may change.
+- The kits are **schema v3**. A v3 mixin must be composed with a v3 *workload* (the published `docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`); the built-in names fail with "no workload kit in the set".
+- v3 source kits are built, not just parsed. The scripts set `SBX_KIT_BUILDER=sandbox`; `sbx kit validate` doesn't accept v3 source kits, so `make validate` runs `sbx kit inspect`.
+- `sbx secret set` fails non-interactively if the secret exists (use `sbx secret rm --force` first); `sbx mcp rm` needs `--force`.
+- The first forecast call can hit reShapr's 3 s backend timeout; `make verify` retries.
 - Dev-only credentials (`admin/password`, fixed keys in reShapr's local compose stack). Never reuse them.
 
 ## Limits and next steps
 
 Design notes, findings and the TODO list: [docs/PLAN.md](docs/PLAN.md).
 
-- One exposition per kit (the credential service is fixed to `reshapr`); local reShapr server only; API-key auth only (no OAuth2).
-- Live prompts verified for Claude, Copilot and Codex. Codex prefers its built-in web search for questions like "forecast" unless the prompt says to use the reshapr tool, even with the kit's agent-context note.
-- The v3 kit builds with `SBX_KIT_BUILDER=sandbox sbx kit inspect ./reshapr` (`make validate`) and passes `make verify` for claude, codex and copilot. The v2 version passed `sbx kit validate`, the sbx-kits-contrib TCK (`TestKitTCK`) and the e2e suite (`scripts/test-kit-e2e.sh <path-to-kit-dir>`) on sbx 0.47.0; those two have **not** been re-run on v3 (the TCK lives in a private repo for v3).
-- Next: remote reShapr server, several expositions, OAuth2, a "builder" kit (reShapr CLI + the `reshapr-builder` skill).
+- One exposition per kit; API-key auth only (outside) or no auth (inside, sandbox-local); no OAuth2.
+- Codex prefers web search unless the prompt says to use the reshapr tool.
+- The e2e suite (`scripts/test-kit-e2e.sh`) can't run for v3 source kits yet: [docker/sbx-kits-contrib#446](https://github.com/docker/sbx-kits-contrib/issues/446).
+- Next: remote reShapr server, several expositions, OAuth2, persistence for the inside kit, a "builder" kit.
 
 ## License
 

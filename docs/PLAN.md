@@ -1,6 +1,6 @@
 # Design notes: reShapr ⇄ Docker Sandboxes (sbx)
 
-Why this POC exists, what was verified, and what is left. Tested with sbx 0.48.0 (v3 kit; the v2 kit was tested with 0.47.0) and reShapr 1.0.0.
+Why this POC exists, what was verified, and what is left. Findings 1-11 describe the 0.2.0 kit (sbx 0.47.0 and 0.48.0); findings 12-16 cover v0.3.0 (sbx 0.49.2 and 0.50.0). reShapr 1.0.0. Paths such as `reshapr/reshapr.yaml` and `scripts/bind.sh` in the older findings no longer exist; see the README for the current layout.
 
 ## 1. Why they fit
 
@@ -67,6 +67,7 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
 10. **Sandbox name and "Bad credentials"** (observed on sbx 0.47.0 and 0.48.0). A Copilot sandbox named `reshapr-poc` kept failing with `GitHub returned: Bad credentials` even with the `github` and `copilot` secrets set before creation. The same `sbx create` command under any other name (`reshapr-cop`, `other-poc`, `reshapr-sbx`) worked, with the published workload `sbx-kit-copilot:1.0.86` and with the built-in `copilot`.
    - The daemon log shows `secrets: credential revoked` for that `vm_id` (service `github`, and `copilot` earlier), about 3,000 times since 12 Oct. For working names it shows `proxy: overriding client-supplied credential with host credential` instead, which is the proxy swapping the placeholder `GH_TOKEN` for the real token.
    - The revoked state survives `sbx rm`, recreating the sandbox and `sbx daemon restart`. The cause and the place where it is stored are unknown. `sbx reset` might clear it (untested, destructive).
+   - Update 28 Oct 2026: on sbx 0.50.0 the same name `reshapr-poc` works (Copilot answered), so this no longer reproduces; no upstream issue was filed.
    - An earlier theory, that the published v3 Copilot workload does not inject the `github` token, was wrong: it injects fine under a fresh name. The default sandbox name is now `reshapr-sbx`; set `SANDBOX=<name>` to use another one.
 11. **sbx MCP gateway as an alternative** (spike, sbx 0.48.0, no kit). `sbx secret set mcp:reshapr:api-key`, then `sbx mcp add reshapr --url http://localhost:7777/mcp/... --header 'x-reshapr-key: ${api-key}' --skip-ssrf-check`, then `sbx create <workload> --static-mcp reshapr`.
    - `sbx mcp ls` shows `ready`. Claude shows `mcp-gateway` Connected; Copilot and Codex also register it (Copilot is not on the docs' supported list).
@@ -77,6 +78,14 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
    - Live Copilot run (15 Oct 2026, `sbx-kit-copilot:1.0.86`, `gh auth token`): works on both paths. Kit: Copilot found `reshapr-get_v1_forecast` by tool search and answered for SFO (no timeout). Gateway: `get_v1_forecast (MCP: mcp-gateway)` was called directly, and an hourly follow-up ("tomorrow, hour by hour") worked too, although Copilot is not on the docs' supported-agent list.
    - Live Codex run (15 Oct 2026, `sbx-kit-codex:0.162.1`, OpenAI API key): works on both paths, but only when the prompt says "using the reshapr tool". Kit: Codex read `kits-agent-context/reshapr-kit.md` and called `reshapr.get_v1_forecast` (8 s). Gateway: `mcp-gateway.get_v1_forecast` (6 s). Without the hint, on both paths, Codex used its built-in web search and returned different numbers; the agent-context note did not change that.
    - Not verified: non-macOS hosts.
+12. **v0.3.0: slim outside kit** (28 Oct 2026, sbx 0.49.2 and 0.50.0). With the gateway doing the registration, the kit shrinks to `agent-context@1` only (no hooks, credential or network rule). `sbx create <workload> --static-mcp reshapr --kit <outside kit>` composes. Claude and Copilot use reShapr unprompted; Codex still web-searches unless the prompt says "using the reshapr tool", whatever the wording of the note. This replaces the 0.2.0 hooks kit (breaking; `v0.2.0` stays published).
+13. **v0.3.0: reShapr inside the sandbox.** The sandbox has its own Docker (29.8, Compose 5.6). `registry.reshapr.io` returns 403 until `registry.reshapr.io`, `quay.io` and `cdn01.quay.io` (blob CDN) are allowed. The stack starts in about 30 s and uses about 1 GB RAM; `npm i -g @reshapr/reshapr-cli --prefix ~/.npm-g` works. The kit keeps per-agent registration hooks pointing at `localhost:7777` (the sbx gateway is host-side and cannot reach the sandbox's localhost) and needs no key.
+    - Without `long-running@1` the sandbox auto-stops with no client, and after a reboot the server starts before the control plane and never recovers. The startup hook therefore restarts `reshapr-gateway-01` when `:7777` is unhealthy.
+    - Postgres is not persisted across stop/start, so each boot re-imports the API (skipped if the exposition exists). Startup takes about a minute.
+    - Live runs: Claude, Codex and Copilot all called the in-sandbox server; Claude also after `sbx stop` and restart.
+14. **v0.3.0: validation.** `make verify` passes 6/6 (3 agents × outside/inside) on sbx 0.49.2 and 0.50.0. kit-tck 3.0.0-m.8: 19/19 on both kits, local and on the published refs.
+15. **v0.3.0: publish and sign.** Both kits are published with buildx on a `docker-container` builder (`linux/amd64,linux/arm64`, provenance) as `docker.io/yadayac/reshapr-outside-sbx:0.3.0` and `docker.io/yadayac/reshapr-inside-sbx:0.3.0`, and signed keyless with `sbx kit sign` (identity `yacine@microcks.io`, issuer `https://github.com/login/oauth`). `sbx kit verify` passes for both.
+16. **e2e on v3 source kits is blocked on sbx 0.48.0 and 0.50.0.** The scoped daemon (`--app-name sbx-kits-contrib-tck`) cannot see the `sbx-kit-src:*` images built in the builder sandbox (`403 pull failed` or `image is not cached locally`). Not a kit problem; reported as [docker/sbx-kits-contrib#446](https://github.com/docker/sbx-kits-contrib/issues/446).
 
 ## 4. Design decisions and limits
 
@@ -105,18 +114,18 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
 - [x] Live prompt for Claude (15 Oct 2026, sbx 0.48.0, Claude Code 2.1.300, API key, published kit `0.2.0` on `sbx-kit-claude`): Claude called `reshapr` and answered with the Paris forecast. The first call hit the 3 s backend timeout and Claude retried with fewer fields.
 - [x] Live prompt for Codex (15 Oct 2026, `sbx secret set openai`, kit and gateway): passes with "using the reshapr tool"; unprompted it uses web search. Possible follow-up: stronger agent-context wording (needs a new kit version).
 - [x] Live prompt through the sbx MCP gateway with Claude (15 Oct 2026): `mcp-gateway - get_v1_forecast` returned the Paris forecast on the first call. Asking Claude to "use the reshapr tool" failed (`Tool "reshapr" not found in gateway`), because the gateway hides the server name (finding 11).
-- [ ] Decide whether to keep both paths (kit and gateway). All three agents now work on both paths.
-- [ ] Untested for Claude: custom `--kit-arg` values, non-macOS hosts, a subscription login, and the kit and the gateway together in one sandbox.
+- [x] Keep both paths? Decided in v0.3.0: the outside kit is the gateway plus agent-context (finding 12), and inside is a separate kit (finding 13).
+- [x] Kit and gateway together in one sandbox, custom `--kit-arg` values and a Claude subscription login: tested in v0.3.0 (`--static-mcp reshapr` with the outside kit; inside with the Petstore API; inside with a Claude `/login` and no API-key secret, 28 Oct 2026: Claude called `reshapr` and answered). The first session, opened 4 minutes after creation, web-searched because the import had not finished; a new session worked. Still untested: non-macOS hosts.
 - [x] **TCK on the v3 kit:** passed (see finding 7).
-- [ ] **e2e suite on the v3 kit: blocked on sbx 0.48.0** (contrib `v3` `scripts/test-kit-e2e.sh`). Not a kit failure; the policy log under
+- [ ] **e2e suite on the v3 kits: blocked on sbx 0.48.0 and 0.50.0, see finding 16 and #446.** Original notes (contrib `v3` `scripts/test-kit-e2e.sh`). Not a kit failure; the policy log under
   `deny-all` was empty. Three attempts:
   - default `./claude` base: the built-in `claude` agent already holds the name, and the renamed copy fails to build on the default builder;
   - with `SBX_KIT_BUILDER=sandbox`: the build works, but the scoped daemon fails with `403 pull failed for image "sbx-kit-src:claude-e2e-…"`;
   - `E2E_HOST=claude` (built-in): `no workload kit in the set`.
-  Retry on a newer sbx channel (`scripts/install-sbx.sh`), since the e2e workflow says the stable line predates kit v3.
-- [ ] Untested on v3: custom `--kit-arg` values, `make down` on a clean machine.
-- [ ] Upstream issue: a revoked credential stays tied to a sandbox name (finding 10), with the log lines and the repro.
-- [ ] Isolated sbx daemon mode (`SBX_APP`): login did not persist in tests; retest or drop.
+  Retried on sbx v0.50.0: same failure (and `image is not cached locally` with a published workload as `E2E_HOST`).
+- [x] `make down` and `make up` were run repeatedly during v0.3.0 validation; a truly clean machine is still untested.
+- [x] Upstream issue about a revoked credential tied to a sandbox name (finding 10): not filed. On sbx 0.50.0 (28 Oct 2026) a Copilot sandbox named `reshapr-poc` works with `github` and `copilot` set, so it no longer reproduces.
+- [x] Isolated sbx daemon mode (`SBX_APP`): dropped from the README. It needs an interactive login and e2e stays blocked (finding 16).
 - [ ] Deferred: OAuth2, several expositions, remote reShapr server, a "builder" kit (reShapr CLI + the `reshapr-builder`
   skill, no Docker in the sandbox, low-privilege control-plane credential), Code Mode (reShapr 1.1 roadmap),
   registering reShapr behind sbx's own MCP gateway.
