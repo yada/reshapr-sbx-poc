@@ -46,6 +46,10 @@ capabilities:
           - raw.githubusercontent.com
           - api.open-meteo.com
 
+  # Keeps reShapr running when no agent session is attached (otherwise the sandbox
+  # auto-stops, and the stack restarts in a random order at the next boot).
+  - type: com.docker.sandbox/long-running@1
+
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
@@ -92,10 +96,11 @@ capabilities:
             export PATH="$HOME/.npm-g/bin:$PATH"
             exec >>/tmp/reshapr-start.log 2>&1
             reshapr run -r "$RESHAPR_RELEASE"
-            for _ in $(seq 90); do
-              curl -sf http://localhost:5555/q/health/ready >/dev/null && curl -sf http://localhost:7777/q/health/ready >/dev/null && break
-              sleep 2
-            done
+            ready() { curl -sf http://localhost:5555/q/health/ready >/dev/null; }
+            for _ in $(seq 60); do ready && break; sleep 2; done
+            # After a reboot the server can start before the control plane and never recover.
+            curl -sf http://localhost:7777/q/health/ready >/dev/null || docker restart reshapr-gateway-01
+            for _ in $(seq 60); do curl -sf http://localhost:7777/q/health/ready >/dev/null && break; sleep 2; done
             reshapr login -s http://localhost:5555 -u admin -p password
             if ! reshapr expo list 2>/dev/null | grep -q "${RESHAPR_EXPOSITION#*/}"; then
               reshapr import -u "$RESHAPR_OPENAPI" --backendEndpoint "$RESHAPR_BACKEND"
