@@ -1,0 +1,117 @@
+# syntax=docker/sandbox-kit:3
+# Mixin kit: run reShapr INSIDE the sandbox (own Docker daemon) and register it with the agent.
+# Everything is isolated in the sandbox: no host port, no API key, no credential.
+schemaVersion: "3"
+kind: mixin
+version: "0.3.0"
+sourceUrl: https://github.com/yada/reshapr-sbx-poc
+displayName: reShapr (inside sbx)
+description: Runs reShapr (postgres, control plane, MCP server) in the sandbox's own Docker daemon, imports an OpenAPI as an MCP server and registers it with the agent.
+licenses:
+  - Apache-2.0
+
+args:
+  release:
+    default: "1.0.0"
+    description: reShapr release (images and CLI).
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    env: RESHAPR_RELEASE
+  openapi:
+    default: "https://raw.githubusercontent.com/open-meteo/open-meteo/refs/heads/main/openapi/forecast.yml"
+    description: URL of the OpenAPI document to expose as an MCP server.
+    env: RESHAPR_OPENAPI
+  backend:
+    default: "https://api.open-meteo.com"
+    description: Base URL of the backend API behind the OpenAPI document.
+    env: RESHAPR_BACKEND
+  exposition:
+    default: "reshapr/open-meteo-weather-forecast-api-1-0-default"
+    description: "<organization>/<exposition-name> path of the imported exposition (see `reshapr expo list`)."
+    pattern: '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'
+    env: RESHAPR_EXPOSITION
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # registry.reshapr.io redirects blobs to quay's CDN. The hosts of the OpenAPI
+      # document and of the backend are added below by hand for other APIs.
+      install:
+        allow:
+          - registry.npmjs.org
+      runtime:
+        allow:
+          - registry.reshapr.io
+          - quay.io
+          - cdn01.quay.io
+          - raw.githubusercontent.com
+          - api.open-meteo.com
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            mkdir -p "$HOME/.npm-g"
+            npm install -g --prefix "$HOME/.npm-g" "@reshapr/reshapr-cli@${{ kit.args.release }}"
+          user: "agent"
+          description: Install the reShapr CLI
+        - command: |
+            command -v claude >/dev/null 2>&1 || exit 0
+            claude mcp add reshapr "http://localhost:7777/mcp/${{ kit.args.exposition }}" \
+              --transport http --scope user || true
+          user: "agent"
+          description: Register reShapr with Claude Code
+        - command: |
+            command -v codex >/dev/null 2>&1 || exit 0
+            mkdir -p "$HOME/.codex"
+            cfg="$HOME/.codex/config.toml"
+            touch "$cfg"
+            grep -q '^\[mcp_servers.reshapr\]' "$cfg" && exit 0
+            cat >> "$cfg" <<EOF
+
+            [mcp_servers.reshapr]
+            url = "http://localhost:7777/mcp/${{ kit.args.exposition }}"
+            EOF
+          user: "agent"
+          description: Register reShapr with Codex
+        - command: |
+            command -v copilot >/dev/null 2>&1 || exit 0
+            command -v jq >/dev/null 2>&1 || { echo "jq missing: reshapr not registered with Copilot" >&2; exit 0; }
+            dir="$HOME/.copilot"; cfg="$dir/mcp-config.json"
+            mkdir -p "$dir"
+            [ -s "$cfg" ] || echo '{}' > "$cfg"
+            tmp="$(mktemp "$dir/mcp-config.json.XXXXXX")"
+            jq --arg url "http://localhost:7777/mcp/${{ kit.args.exposition }}" \
+               '.mcpServers = ((.mcpServers // {}) + {reshapr: {type: "http", url: $url, tools: ["*"]}})' \
+               "$cfg" > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$cfg" || rm -f "$tmp"
+          user: "agent"
+          description: Register reShapr with Copilot CLI
+      startup:
+        # Runs on every boot: `reshapr run` is a compose up (idempotent) and the
+        # import is skipped when the exposition already exists.
+        - command: |
+            export PATH="$HOME/.npm-g/bin:$PATH"
+            exec >>/tmp/reshapr-start.log 2>&1
+            reshapr run -r "$RESHAPR_RELEASE"
+            for _ in $(seq 90); do
+              curl -sf http://localhost:5555/q/health/ready >/dev/null && curl -sf http://localhost:7777/q/health/ready >/dev/null && break
+              sleep 2
+            done
+            reshapr login -s http://localhost:5555 -u admin -p password
+            if ! reshapr expo list 2>/dev/null | grep -q "${RESHAPR_EXPOSITION#*/}"; then
+              reshapr import -u "$RESHAPR_OPENAPI" --backendEndpoint "$RESHAPR_BACKEND"
+            fi
+          user: "agent"
+          background: true
+          env: [RESHAPR_RELEASE, RESHAPR_OPENAPI, RESHAPR_BACKEND, RESHAPR_EXPOSITION]
+          description: Start reShapr and import the API (log in /tmp/reshapr-start.log)
+
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      content: |
+        ## reShapr MCP tools
+
+        An MCP server named `reshapr` is registered. It runs inside this sandbox
+        (http://localhost:7777) and gives governed access to a backend API: call its
+        tools instead of reaching the API directly (direct egress to it is blocked).
+        It starts a minute or so after the sandbox boots; if the tools are missing,
+        check `/tmp/reshapr-start.log`. Prefer the tool output over re-fetching.
