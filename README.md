@@ -45,7 +45,7 @@ Use **inside** for an isolated, ready-made environment with a single `sbx create
 
 ## Prerequisites
 
-`sbx` 0.50.0 or later (tested on 0.49.2 and 0.50.0), signed in (`sbx login`), and `curl`. For **outside** only: Docker (Compose v2), and the reShapr CLI (Node 22+): `npm install -g @reshapr/reshapr-cli --allow-scripts=@scarf/scarf` ([docs](https://reshapr.io/docs/tutorials/getting-started)). If `reshapr` is not on your PATH, the scripts run it with `npx @reshapr/reshapr-cli@<release>` (slower on the first run).
+`sbx` 0.50.0 or later (tested on 0.49.2, 0.50.0 and 0.51.0), signed in (`sbx login`), and `curl`. For **outside** only: Docker (Compose v2), and the reShapr CLI (Node 22+): `npm install -g @reshapr/reshapr-cli --allow-scripts=@scarf/scarf` ([docs](https://reshapr.io/docs/tutorials/getting-started)). If `reshapr` is not on your PATH, the scripts run it with `npx @reshapr/reshapr-cli@<release>` (slower on the first run).
 
 Outside mode needs free ports 5555 and 7777 on the host (3333 with `UI=1`).
 
@@ -59,7 +59,7 @@ Pick an agent, then one mode. Run every step in the same terminal, because the a
 
 ```bash
 sbx secret set anthropic
-export BASE=docker.io/docker/sbx-kit-claude:2.1.296
+export BASE=docker.io/docker/sbx-kit-claude:2.1.314
 ```
 
 *Copilot* (tested live). This reads your `gh` login (run `gh auth login` first). See [Copilot needs two secrets](#copilot-needs-two-secrets):
@@ -67,14 +67,14 @@ export BASE=docker.io/docker/sbx-kit-claude:2.1.296
 ```bash
 sbx secret set github  --command "$(which gh) auth token"
 sbx secret set copilot --command "$(which gh) auth token"
-export BASE=docker.io/docker/sbx-kit-copilot:1.0.86
+export BASE=copilot
 ```
 
 *Codex* (tested live; ask "…using the reshapr tool", because Codex otherwise prefers its built-in web search, even with the kit's agent-context note). Paste your OpenAI key when asked:
 
 ```bash
 sbx secret set openai
-export BASE=docker.io/docker/sbx-kit-codex:0.162.1
+export BASE=docker.io/docker/sbx-kit-codex:0.166.0
 ```
 
 **2a. Inside** (nothing to start on the host):
@@ -124,7 +124,7 @@ make validate                            # sbx kit inspect on both kits
 
 `make verify` needs **no agent or model login**; it uses `sbx exec` and `curl`. Outside proves: the agent registers `mcp-gateway`, the kit's agent-context is installed, and the API key is not in the sandbox. Inside proves: reShapr starts and imports the API, the agent has `reshapr` registered, and an MCP `initialize` → `tools/list` → `tools/call get_v1_forecast` round trip works.
 
-Results: all 6 combinations (3 agents × 2 modes) pass on sbx 0.49.2 and 0.50.0; the kit TCK passes 19/19 on both published images. Live prompts were run for Claude, Codex and Copilot on both modes.
+Results: all 6 combinations (3 agents × 2 modes) pass on sbx 0.49.2 and 0.50.0, and `make verify` passes again on 0.51.0 (Claude 2.1.314, Codex 0.166.0, built-in Copilot; the Copilot workload image `sbx-kit-copilot` has since disappeared from Docker Hub). The kit TCK (`kit-tck` 3.0.0-m.11) passes 19/19 on both published images. Live prompts were run for Claude, Codex and Copilot on both modes.
 
 ### Try it without an agent login
 
@@ -221,7 +221,7 @@ The host stack is reShapr's own (`reshapr run`), pinned with `RESHAPR_RELEASE` (
 - **Inside startup timing:** an agent session opened before the import finishes has no reShapr tools and may fall back to web search. Wait for the import to finish: `sbx exec <sandbox> tail -3 /tmp/reshapr-start.log` should end with the `Endpoints` line (the agent can list `reshapr` as connected before that). Then start a new session if needed. Tested with a Claude subscription `/login` (no API-key secret): works.
 - **Inside needs `long-running@1`.** Without it the sandbox auto-stops with no client attached, and after a reboot the server can start before the control plane and never recover. The startup hook restarts `reshapr-gateway-01` when `:7777` is unhealthy.
 - **Inside startup:** each boot runs `reshapr run` and re-imports the API when the exposition is missing (Postgres is not persisted across stop/start). It takes about a minute and about 1 GB RAM. `registry.reshapr.io` redirects blobs to `cdn01.quay.io`, so that host must be allowed; it may change.
-- The kits are **schema v3**. A v3 mixin must be composed with a v3 *workload* (the published `docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`); the built-in names fail with "no workload kit in the set".
+- The kits are **schema v3**. A v3 mixin must be composed with a v3 *workload* (the published `docker.io/docker/sbx-kit-<agent>:<version>`, pinned in `scripts/common.sh`). Since sbx 0.51.0 the built-in `copilot` also composes (there is no published Copilot workload), but the built-in `claude` and `codex` images have no Node/npm, so the inside kit's CLI install fails with `npm: not found`; keep the pinned workloads for those two.
 - v3 source kits are built, not just parsed. The scripts set `SBX_KIT_BUILDER=sandbox`; `sbx kit validate` doesn't accept v3 source kits, so `make validate` runs `sbx kit inspect`.
 - `sbx secret set` fails non-interactively if the secret exists (use `sbx secret rm --force` first); `sbx mcp rm` needs `--force`.
 - The first forecast call can hit reShapr's 3 s backend timeout; `make verify` retries.

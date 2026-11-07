@@ -17,9 +17,9 @@ export SBX_KIT_BUILDER="${SBX_KIT_BUILDER:-sandbox}"
 # v3 mixins need a v3 workload as base. The built-in `claude` and `codex` names
 # don't compose with them; the published workloads do. Pinned on purpose.
 case "$AGENT" in
-  claude)  BASE="docker.io/docker/sbx-kit-claude:2.1.296" ;;
-  codex)   BASE="docker.io/docker/sbx-kit-codex:0.162.1" ;;
-  copilot) BASE="docker.io/docker/sbx-kit-copilot:1.0.86" ;;
+  claude)  BASE="docker.io/docker/sbx-kit-claude:2.1.314" ;;
+  codex)   BASE="docker.io/docker/sbx-kit-codex:0.166.0" ;;
+  copilot) BASE="copilot" ;;   # built-in agent: no published v3 Copilot workload exists
   *)       BASE="$AGENT" ;;
 esac
 export BASE
