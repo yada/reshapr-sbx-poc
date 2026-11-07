@@ -87,6 +87,8 @@ reShapr server (host side), and the sbx proxy injects the single reShapr key, so
 15. **v0.3.0: publish and sign.** Both kits are published with buildx on a `docker-container` builder (`linux/amd64,linux/arm64`, provenance) as `docker.io/yadayac/reshapr-outside-sbx:0.3.0` and `docker.io/yadayac/reshapr-inside-sbx:0.3.0`, and signed keyless with `sbx kit sign` (identity `yacine@microcks.io`, issuer `https://github.com/login/oauth`). `sbx kit verify` passes for both.
 16. **e2e on v3 source kits is blocked on sbx 0.48.0 and 0.50.0.** The scoped daemon (`--app-name sbx-kits-contrib-tck`) cannot see the `sbx-kit-src:*` images built in the builder sandbox (`403 pull failed` or `image is not cached locally`). Not a kit problem; reported as [docker/sbx-kits-contrib#446](https://github.com/docker/sbx-kits-contrib/issues/446).
 
+17. **Revalidation on sbx 0.51.0** (7 Nov 2026). `make verify` passes in both modes for Claude 2.1.314 and Codex 0.166.0 (also on the older pins 2.1.296 and 0.162.1), and for the built-in `copilot` (CLI 1.0.86). `docker.io/docker/sbx-kit-copilot` no longer exists on Docker Hub (401 on pull, "object not found" in the Hub API), so `scripts/common.sh` uses `BASE=copilot`. The built-in `claude` and `codex` do not work as a base for the inside kit: `docker.io/sbx/claude` and `docker.io/sbx/codex` have no npm (`Install the reShapr CLI` exits 127). `kit-tck` 3.0.0-m.11: 19/19 on both published kits.
+
 ## 4. Design decisions and limits
 
 - Mixin kit, minimal egress (only the reShapr server port); the install hooks only write agent config, nothing is downloaded.
