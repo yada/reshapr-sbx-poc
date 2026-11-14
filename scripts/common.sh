@@ -8,20 +8,15 @@ SANDBOX="${SANDBOX:-reshapr-sbx}"
 AGENT="${AGENT:-claude}"
 PORT="${PORT:-7777}"
 EXPOSITION="${EXPOSITION:-reshapr/open-meteo-weather-forecast-api-1-0-default}"
-RELEASE="${RESHAPR_RELEASE:-1.0.0}"   # reShapr release for `reshapr run -r` and the CLI
+RELEASE="${RESHAPR_RELEASE:-1.1.1}"   # reShapr release for `reshapr run -r` and the CLI
 
 # v3 source kits are built in a builder sandbox; the host-docker path fails on
 # Docker Desktop's classic image store (OCI exporter not supported).
 export SBX_KIT_BUILDER="${SBX_KIT_BUILDER:-sandbox}"
 
-# v3 mixins need a v3 workload as base. The built-in `claude` and `codex` names
-# don't compose with them; the published workloads do. Pinned on purpose.
-case "$AGENT" in
-  claude)  BASE="docker.io/docker/sbx-kit-claude:2.1.314" ;;
-  codex)   BASE="docker.io/docker/sbx-kit-codex:0.166.0" ;;
-  copilot) BASE="copilot" ;;   # built-in agent: no published v3 Copilot workload exists
-  *)       BASE="$AGENT" ;;
-esac
+# The built-in agent names compose with the v3 kits. The inside kit installs Node
+# itself when the base has none, so no workload pin is needed.
+BASE="$AGENT"
 export BASE
 
 # SBX_APP=<name> runs everything on an isolated sbx daemon (own policy,
