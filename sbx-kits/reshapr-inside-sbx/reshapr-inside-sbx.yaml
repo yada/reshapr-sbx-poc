@@ -3,7 +3,7 @@
 # Everything is isolated in the sandbox: no host port, no API key, no credential.
 schemaVersion: "3"
 kind: mixin
-version: "0.3.0"
+version: "0.3.1"
 sourceUrl: https://github.com/yada/reshapr-sbx-poc
 displayName: reShapr (inside sbx)
 description: Runs reShapr (postgres, control plane, MCP server) in the sandbox's own Docker daemon, imports an OpenAPI as an MCP server and registers it with the agent.
